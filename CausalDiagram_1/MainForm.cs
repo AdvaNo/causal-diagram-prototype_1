@@ -70,7 +70,7 @@ namespace CausalDiagram_1
             tsiExport.Click += (s, e) => ExportPng();
 
             // создаём управляющие кнопки (включая Select и цветовые кнопки)
-            _btnSelect = new Button { Text = "Мышь (Выбрать)" };
+            _btnSelect = new Button { Text = "Выбрать" };
             _btnAddNode = new Button { Text = "Добавить узел" };
             _btnConnect = new Button { Text = "Соединить" };
             _btnDelete = new Button { Text = "Удалить" };
@@ -577,43 +577,40 @@ namespace CausalDiagram_1
             {
                 if (sfd.ShowDialog() != DialogResult.OK) return;
 
-                using (var bmp2 = new Bitmap(_canvas.Width, _canvas.Height))
-                using (var g = Graphics.FromImage(bmp2))
+                // создаём bitmap размером как текущая видимая область канваса
+                int w = Math.Max(1, _canvas.Width);
+                int h = Math.Max(1, _canvas.Height);
+
+                using (var bmp = new Bitmap(w, h))
+                using (var g = Graphics.FromImage(bmp))
                 {
                     g.Clear(Color.White);
-                    g.SmoothingMode = SmoothingMode.AntiAlias;
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
+                    // применяем ту же трансформацию, что и на холсте (scale и pan)
                     var m = g.Transform;
                     m.Reset();
                     m.Scale(_scale, _scale);
                     m.Translate(_panOffset.X, _panOffset.Y);
                     g.Transform = m;
 
-                    // draw edges
+                    // Рисуем ребра (стрелки) через ваш DrawArrow
                     foreach (var edge in _diagram.Edges)
                     {
                         var from = _diagram.Nodes.FirstOrDefault(n => n.Id == edge.From);
                         var to = _diagram.Nodes.FirstOrDefault(n => n.Id == edge.To);
                         if (from == null || to == null) continue;
-                        using (var pen = new Pen(Color.DarkGreen, 2))
-                        {
-                            pen.EndCap = System.Drawing.Drawing2D.LineCap.ArrowAnchor;
-                            g.DrawLine(pen, new PointF(from.X, from.Y), new PointF(to.X, to.Y));
-                        }
+                        DrawArrow(g, new PointF(from.X, from.Y), new PointF(to.X, to.Y));
                     }
 
-                    // draw nodes
+                    // Рисуем узлы через ваш DrawNode (он уже рисует прямоугольники/закругления и цвет)
                     foreach (var node in _diagram.Nodes)
                     {
-                        var center = new PointF(node.X, node.Y);
-                        var rect = new RectangleF(center.X - NodeRadius, center.Y - NodeRadius, NodeRadius * 2, NodeRadius * 2);
-                        g.FillEllipse(Brushes.LightBlue, rect);
-                        g.DrawEllipse(Pens.DodgerBlue, rect);
-                        var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-                        g.DrawString(node.Title, SystemFonts.DefaultFont, Brushes.Black, center, sf);
+                        DrawNode(g, node);
                     }
 
-                    bmp2.Save(sfd.FileName, System.Drawing.Imaging.ImageFormat.Png);
+                    // Сохраняем
+                    bmp.Save(sfd.FileName, System.Drawing.Imaging.ImageFormat.Png);
                 }
 
                 MessageBox.Show("Экспорт завершён.");
