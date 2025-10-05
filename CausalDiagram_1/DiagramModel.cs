@@ -4,6 +4,13 @@ using Newtonsoft.Json;
 
 namespace CausalDiagram_1
 {
+    public enum NodeColor
+    {
+        Green,
+        Yellow,
+        Red
+    }
+
     public class Node
     {
         public Guid Id { get; set; } = Guid.NewGuid();
@@ -18,7 +25,10 @@ namespace CausalDiagram_1
         public int Occurrence { get; set; } = 1;
         public int Detectability { get; set; } = 1;
 
-        [JsonIgnore] // Newtonsoft.Json attribute
+        // Цвет и форма (сериализуется как enum)
+        public NodeColor ColorName { get; set; } = NodeColor.Green;
+
+        [JsonIgnore]
         public int Rpn => Severity * Occurrence * Detectability;
     }
 

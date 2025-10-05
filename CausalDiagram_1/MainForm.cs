@@ -10,8 +10,22 @@ namespace CausalDiagram_1
 {
     public class MainForm : Form
     {
+        private StatusStrip _statusStrip;
+        private ToolStripStatusLabel _statusLabel;
+        //отладка
+
         private Diagram _diagram = new Diagram();
         private readonly CommandManager _cmd = new CommandManager();
+
+        // Размеры узла (прямоугольник)
+        private const int NodeWidth = 120;
+        private const int NodeHeight = 60;
+
+        // Текущий цвет для создания новых узлов
+        private NodeColor _currentColor = NodeColor.Green;
+
+        // Кнопка "Выбрать" (мышка) - объявите поле чтобы можно было подсвечивать
+        private Button _btnSelect;
 
         // UI
         private Panel _canvas;
@@ -21,8 +35,8 @@ namespace CausalDiagram_1
         private string _currentFile;
 
         // Interaction state
-        private enum Mode { None, AddNode, Connect, Pan }
-        private Mode _mode = Mode.None;
+        private enum Mode { Select, AddNode, Connect, Pan }
+        private Mode _mode = Mode.Select;
         private Node _dragNode = null;
         private PointF _dragStart;
         private bool _isPanning = false;
@@ -55,6 +69,8 @@ namespace CausalDiagram_1
             tsiSave.Click += (s, e) => SaveDiagram();
             tsiExport.Click += (s, e) => ExportPng();
 
+            // создаём управляющие кнопки (включая Select и цветовые кнопки)
+            _btnSelect = new Button { Text = "Мышь (Выбрать)" };
             _btnAddNode = new Button { Text = "Добавить узел" };
             _btnConnect = new Button { Text = "Соединить" };
             _btnDelete = new Button { Text = "Удалить" };
@@ -62,6 +78,8 @@ namespace CausalDiagram_1
             _btnRedo = new Button { Text = "Повторить" };
             _btnFmea = new Button { Text = "FMEA (RPN)" };
 
+            // события
+            _btnSelect.Click += (s, e) => SetMode(Mode.Select);
             _btnAddNode.Click += (s, e) => SetMode(Mode.AddNode);
             _btnConnect.Click += (s, e) => SetMode(Mode.Connect);
             _btnDelete.Click += (s, e) => DeleteSelected();
@@ -69,32 +87,58 @@ namespace CausalDiagram_1
             _btnRedo.Click += (s, e) => { _cmd.Redo(); InvalidateCanvas(); };
             _btnFmea.Click += (s, e) => ShowFmeaForm();
 
-            var host = new ToolStripControlHost(_btnAddNode);
-            var host2 = new ToolStripControlHost(_btnConnect);
-            var host3 = new ToolStripControlHost(_btnDelete);
-            var host4 = new ToolStripControlHost(_btnUndo);
-            var host5 = new ToolStripControlHost(_btnRedo);
-            var host6 = new ToolStripControlHost(_btnFmea);
+            // Цветовые кнопки (ToolStrip кнопки удобнее, но мы используем обычные Button-hosts)
+            var btnColorGreen = new Button { Text = "Зелёный" };
+            var btnColorYellow = new Button { Text = "Жёлтый" };
+            var btnColorRed = new Button { Text = "Красный" };
 
+            btnColorGreen.Click += (s, e) => { _currentColor = NodeColor.Green; UpdateColorButtons(btnColorGreen, btnColorYellow, btnColorRed); };
+            btnColorYellow.Click += (s, e) => { _currentColor = NodeColor.Yellow; UpdateColorButtons(btnColorGreen, btnColorYellow, btnColorRed); };
+            btnColorRed.Click += (s, e) => { _currentColor = NodeColor.Red; UpdateColorButtons(btnColorGreen, btnColorYellow, btnColorRed); };
+
+            // hosts
+            var hostSelect = new ToolStripControlHost(_btnSelect);
+            var hostAdd = new ToolStripControlHost(_btnAddNode);
+            var hostConnect = new ToolStripControlHost(_btnConnect);
+            var hostDelete = new ToolStripControlHost(_btnDelete);
+            var hostUndo = new ToolStripControlHost(_btnUndo);
+            var hostRedo = new ToolStripControlHost(_btnRedo);
+            var hostFmea = new ToolStripControlHost(_btnFmea);
+
+            var hostColorG = new ToolStripControlHost(btnColorGreen);
+            var hostColorY = new ToolStripControlHost(btnColorYellow);
+            var hostColorR = new ToolStripControlHost(btnColorRed);
+
+            // добавление в тулбар (порядок можно менять)
             _tool.Items.Add(tsiNew);
             _tool.Items.Add(tsiOpen);
             _tool.Items.Add(tsiSave);
             _tool.Items.Add(tsiExport);
             _tool.Items.Add(new ToolStripSeparator());
-            _tool.Items.Add(host);
-            _tool.Items.Add(host2);
-            _tool.Items.Add(host3);
-            _tool.Items.Add(host4);
-            _tool.Items.Add(host5);
-            _tool.Items.Add(host6);
 
-            Controls.Add(_tool);
+            _tool.Items.Add(hostSelect);
+            _tool.Items.Add(hostAdd);
+            _tool.Items.Add(hostConnect);
+            _tool.Items.Add(hostDelete);
+            _tool.Items.Add(hostUndo);
+            _tool.Items.Add(hostRedo);
+            _tool.Items.Add(hostFmea);
 
-            // PropertyGrid on the right
+            _tool.Items.Add(new ToolStripSeparator());
+            _tool.Items.Add(new ToolStripLabel("Цвет:"));
+            _tool.Items.Add(hostColorG);
+            _tool.Items.Add(hostColorY);
+            _tool.Items.Add(hostColorR);
+
+            // установить визуальную подсветку цвета по-умолчанию
+            UpdateColorButtons(btnColorGreen, btnColorYellow, btnColorRed);
+
+            // --- PropertyGrid (справа) ---
             _propGrid = new PropertyGrid { Dock = DockStyle.Right, Width = 300 };
-            Controls.Add(_propGrid);
+            // чтобы изменения в PropertyGrid сразу перерисовывали холст
+            _propGrid.PropertyValueChanged += (s, e) => InvalidateCanvas();
 
-            // Canvas panel center
+            // --- Canvas (центр) ---
             _canvas = new Panel { Dock = DockStyle.Fill, BackColor = Color.White };
             _canvas.Paint += Canvas_Paint;
             _canvas.MouseDown += Canvas_MouseDown;
@@ -102,11 +146,45 @@ namespace CausalDiagram_1
             _canvas.MouseMove += Canvas_MouseMove;
             _canvas.MouseWheel += Canvas_MouseWheel;
             _canvas.Resize += (s, e) => InvalidateCanvas();
-            DoubleBufferedControl(_canvas, true);
-            Controls.Add(_canvas);
+            // включаем double buffering (метод из расширения)
+            this.DoubleBufferedControl(_canvas, true);
 
+            // --- StatusStrip (внизу) ---
+            _statusStrip = new StatusStrip();
+            _statusLabel = new ToolStripStatusLabel("Готово");
+            _statusStrip.Items.Add(_statusLabel);
+
+            // --- Добавляем элементы управления на форму в правильном порядке ---
+            Controls.Add(_canvas);       // центр
+            Controls.Add(_propGrid);    // справа
+            Controls.Add(_tool);        // сверху
+            Controls.Add(_statusStrip); // снизу
+
+            // Установим режим по умолчанию
+            _mode = Mode.Select;
+
+            // Обновим статус (и перерисовку)
             UpdateStatus();
+            UpdateStatusText();
+            InvalidateCanvas();
         }
+
+        private void UpdateColorButtons(Button g, Button y, Button r)
+        {
+            // простая визуальная подсветка: выбранная кнопка — светло-зелёная, прочие — стандарт
+            g.BackColor = (_currentColor == NodeColor.Green) ? Color.LightGreen : SystemColors.Control;
+            y.BackColor = (_currentColor == NodeColor.Yellow) ? Color.LightYellow : SystemColors.Control;
+            r.BackColor = (_currentColor == NodeColor.Red) ? Color.LightCoral : SystemColors.Control;
+        }
+        private void UpdateStatusText()
+        {
+            try
+            {
+                _statusLabel.Text = $"Режим: {_mode} | Узлы: {_diagram?.Nodes?.Count ?? 0}";
+            }
+            catch { _statusLabel.Text = "Режим: ?"; }
+        }
+
 
         private void SetMode(Mode m)
         {
@@ -125,58 +203,175 @@ namespace CausalDiagram_1
 
         private void Canvas_Paint(object sender, PaintEventArgs e)
         {
-            var g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-
-            // apply transform: scale then translate (pan)
-            var m = g.Transform;
-            m.Reset();
-            m.Scale(_scale, _scale);
-            m.Translate(_panOffset.X, _panOffset.Y);
-            g.Transform = m;
-
-            // draw edges
-            foreach (var edge in _diagram.Edges)
+            try
             {
-                var from = _diagram.Nodes.FirstOrDefault(n => n.Id == edge.From);
-                var to = _diagram.Nodes.FirstOrDefault(n => n.Id == edge.To);
-                if (from == null || to == null) continue;
-                DrawArrow(g, new PointF(from.X, from.Y), new PointF(to.X, to.Y));
+                var g = e.Graphics;
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+                // apply transform: scale then translate (pan)
+                var m = g.Transform;
+                m.Reset();
+                m.Scale(_scale, _scale);
+                m.Translate(_panOffset.X, _panOffset.Y);
+                g.Transform = m;
+
+                // draw edges
+                foreach (var edge in _diagram.Edges)
+                {
+                    var from = _diagram.Nodes.FirstOrDefault(n => n.Id == edge.From);
+                    var to = _diagram.Nodes.FirstOrDefault(n => n.Id == edge.To);
+                    if (from == null || to == null) continue;
+                    DrawArrow(g, new PointF(from.X, from.Y), new PointF(to.X, to.Y));
+                }
+
+                // draw nodes
+                foreach (var node in _diagram.Nodes)
+                {
+                    DrawNode(g, node);
+                }
             }
-
-            // draw nodes
-            foreach (var node in _diagram.Nodes)
+            catch (Exception ex)
             {
-                DrawNode(g, node);
+                // безопасный лог и уведомление
+                try
+                {
+                    string tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "causal_diagram_error.log");
+                    System.IO.File.AppendAllText(tmp, DateTime.Now.ToString("s") + " — Canvas_Paint exception:\r\n" + ex.ToString() + "\r\n\r\n");
+                }
+                catch { /* негромкая неудача логирования */ }
+
+                // покажем краткое сообщение — так мы увидим, что именно упало
+                MessageBox.Show("Ошибка при отрисовке холста: " + ex.Message + "\nСм. лог: causal_diagram_error.log в %TEMP%", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
         private void DrawNode(Graphics g, Node node)
         {
             var center = new PointF(node.X, node.Y);
-            var rect = new RectangleF(center.X - NodeRadius, center.Y - NodeRadius, NodeRadius * 2, NodeRadius * 2);
+            var rect = new RectangleF(center.X - NodeWidth / 2f, center.Y - NodeHeight / 2f, NodeWidth, NodeHeight);
 
-            g.FillEllipse(Brushes.LightBlue, rect);
-            g.DrawEllipse(Pens.DodgerBlue, rect);
+            Brush fill;
+            Pen pen = Pens.DodgerBlue;
+
+            switch (node.ColorName)
+            {
+                case NodeColor.Green:
+                    fill = Brushes.LightGreen;
+                    // острые углы — простая прямоугольная отрисовка
+                    g.FillRectangle(fill, rect);
+                    g.DrawRectangle(pen, rect.X, rect.Y, rect.Width, rect.Height);
+                    break;
+                case NodeColor.Yellow:
+                    fill = Brushes.LightYellow;
+                    g.FillRectangle(fill, rect);
+                    g.DrawRectangle(pen, rect.X, rect.Y, rect.Width, rect.Height);
+                    break;
+                case NodeColor.Red:
+                    fill = Brushes.LightCoral;
+                    // закруглённые углы
+                    using (var path = RoundedRectPath(rect, 12f))
+                    {
+                        g.FillPath(fill, path);
+                        g.DrawPath(Pens.DarkRed, path);
+                    }
+                    break;
+                default:
+                    fill = Brushes.LightGray;
+                    g.FillRectangle(fill, rect);
+                    g.DrawRectangle(pen, rect.X, rect.Y, rect.Width, rect.Height);
+                    break;
+            }
 
             var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
             g.DrawString(node.Title, SystemFonts.DefaultFont, Brushes.Black, center, sf);
         }
 
-
-        private void DrawArrow(Graphics g, PointF p1, PointF p2)
+        private GraphicsPath RoundedRectPath(RectangleF rect, float radius)
         {
+            var path = new GraphicsPath();
+            float r = Math.Max(0, radius);
+            float diameter = r * 2f;
+
+            // верхняя левая дуга
+            path.AddArc(rect.X, rect.Y, diameter, diameter, 180, 90);
+            // верхняя правая дуга
+            path.AddArc(rect.Right - diameter, rect.Y, diameter, diameter, 270, 90);
+            // нижняя правая дуга
+            path.AddArc(rect.Right - diameter, rect.Bottom - diameter, diameter, diameter, 0, 90);
+            // нижняя левая дуга
+            path.AddArc(rect.X, rect.Bottom - diameter, diameter, diameter, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        private void DrawArrow(Graphics g, PointF pFrom, PointF pTo)
+        {
+            // получим точки на границах прямоугольников
+            var fromRect = new RectangleF(pFrom.X - NodeWidth / 2f, pFrom.Y - NodeHeight / 2f, NodeWidth, NodeHeight);
+            var toRect = new RectangleF(pTo.X - NodeWidth / 2f, pTo.Y - NodeHeight / 2f, NodeWidth, NodeHeight);
+
+            var pt1 = GetRectBoundaryPointTowards(fromRect, pTo);
+            var pt2 = GetRectBoundaryPointTowards(toRect, pFrom); // точка на границе целевого прямоугольника со стороны источника
+
             using (var pen = new Pen(Color.DarkGreen, 2))
             {
-                pen.EndCap = System.Drawing.Drawing2D.LineCap.ArrowAnchor;
-                g.DrawLine(pen, p1, p2);
+                // линия
+                g.DrawLine(pen, pt1, pt2);
+
+                // стрелка (треугольник) в конце pt2, направлен в сторону от pt1 к pt2
+                var dir = new PointF(pt2.X - pt1.X, pt2.Y - pt1.Y);
+                float len = (float)Math.Sqrt(dir.X * dir.X + dir.Y * dir.Y);
+                if (len < 0.0001f) return;
+                var ux = dir.X / len;
+                var uy = dir.Y / len;
+
+                float arrowLen = 12f;
+                float halfWidth = 6f;
+
+                // орт влево (перпендикуляр)
+                var px = -uy;
+                var py = ux;
+
+                var a = new PointF(pt2.X, pt2.Y);
+                var b = new PointF(pt2.X - ux * arrowLen + px * halfWidth, pt2.Y - uy * arrowLen + py * halfWidth);
+                var c = new PointF(pt2.X - ux * arrowLen - px * halfWidth, pt2.Y - uy * arrowLen - py * halfWidth);
+
+                g.FillPolygon(Brushes.DarkGreen, new[] { a, b, c });
             }
         }
 
+        // Возвращает точку на границе rect в направлении к target
+        private PointF GetRectBoundaryPointTowards(RectangleF rect, PointF target)
+        {
+            var center = new PointF(rect.X + rect.Width / 2f, rect.Y + rect.Height / 2f);
+            var dx = target.X - center.X;
+            var dy = target.Y - center.Y;
+            float len = (float)Math.Sqrt(dx * dx + dy * dy);
+            if (len < 0.0001f) return center;
+
+            var ux = dx / len;
+            var uy = dy / len;
+
+            // расстояние до границы по x и y
+            float hx = rect.Width / 2f;
+            float hy = rect.Height / 2f;
+
+            float tx = Math.Abs(hx / ux);
+            float ty = Math.Abs(hy / uy);
+
+            float t = Math.Min(tx, ty);
+
+            // вернём точку на границе
+            return new PointF(center.X + ux * t, center.Y + uy * t);
+        }
+
+
         private Node HitTestNode(PointF canvasPoint)
         {
+            // проверяем, попадает ли точка в прямоугольник узла
             return _diagram.Nodes.FirstOrDefault(n =>
-                Distance(n.X, n.Y, canvasPoint.X, canvasPoint.Y) <= NodeRadius);
+                Math.Abs(canvasPoint.X - n.X) <= NodeWidth / 2f &&
+                Math.Abs(canvasPoint.Y - n.Y) <= NodeHeight / 2f);
         }
 
         private static float Distance(float x1, float y1, float x2, float y2)
@@ -211,7 +406,7 @@ namespace CausalDiagram_1
 
             if (_mode == Mode.AddNode && e.Button == MouseButtons.Left)
             {
-                var node = new Node { X = p.X, Y = p.Y, Title = "Новый узел" };
+                var node = new Node { X = p.X, Y = p.Y, Title = "Новый узел", ColorName = _currentColor };
                 var cmd = new AddNodeCommand(_diagram, node);
                 _cmd.ExecuteCommand(cmd);
                 InvalidateCanvas();
@@ -240,7 +435,8 @@ namespace CausalDiagram_1
                 }
             }
 
-            if (e.Button == MouseButtons.Left)
+            // В режиме Select: выбор и/или перетаскивание узла
+            if (_mode == Mode.Select && e.Button == MouseButtons.Left)
             {
                 var node = HitTestNode(p);
                 if (node != null)
@@ -452,14 +648,22 @@ namespace CausalDiagram_1
 
         #endregion
 
-        // Proxy for property grid
         public class NodeProxy
         {
             public Node Node { get; }
             public NodeProxy(Node n) { Node = n; }
+
             public string Title { get => Node.Title; set => Node.Title = value; }
             public string Description { get => Node.Description; set => Node.Description = value; }
             public float Weight { get => Node.Weight; set => Node.Weight = value; }
+
+            // expose enum - PropertyGrid отобразит как dropdown
+            public NodeColor Color
+            {
+                get => Node.ColorName;
+                set => Node.ColorName = value;
+            }
+
             public int Severity { get => Node.Severity; set => Node.Severity = value; }
             public int Occurrence { get => Node.Occurrence; set => Node.Occurrence = value; }
             public int Detectability { get => Node.Detectability; set => Node.Detectability = value; }
