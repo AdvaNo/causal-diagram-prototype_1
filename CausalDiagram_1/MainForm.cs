@@ -1,4 +1,5 @@
 ﻿using System;
+using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
@@ -75,8 +76,8 @@ namespace CausalDiagram_1
             _btnConnect = new Button { Text = "Соединить" };
             _btnDelete = new Button { Text = "Удалить" };
             _btnUndo = new Button { Text = "Отменить" };
-            _btnRedo = new Button { Text = "Повторить" };
-            _btnFmea = new Button { Text = "FMEA (RPN)" };
+            _btnRedo = new Button { Text = "Вернуть" };
+            //_btnFmea = new Button { Text = "FMEA (RPN)" };
 
             // события
             _btnSelect.Click += (s, e) => SetMode(Mode.Select);
@@ -85,7 +86,7 @@ namespace CausalDiagram_1
             _btnDelete.Click += (s, e) => DeleteSelected();
             _btnUndo.Click += (s, e) => { _cmd.Undo(); InvalidateCanvas(); };
             _btnRedo.Click += (s, e) => { _cmd.Redo(); InvalidateCanvas(); };
-            _btnFmea.Click += (s, e) => ShowFmeaForm();
+            //_btnFmea.Click += (s, e) => ShowFmeaForm();
 
             // Цветовые кнопки (ToolStrip кнопки удобнее, но мы используем обычные Button-hosts)
             var btnColorGreen = new Button { Text = "Зелёный" };
@@ -103,7 +104,7 @@ namespace CausalDiagram_1
             var hostDelete = new ToolStripControlHost(_btnDelete);
             var hostUndo = new ToolStripControlHost(_btnUndo);
             var hostRedo = new ToolStripControlHost(_btnRedo);
-            var hostFmea = new ToolStripControlHost(_btnFmea);
+            //var hostFmea = new ToolStripControlHost(_btnFmea);
 
             var hostColorG = new ToolStripControlHost(btnColorGreen);
             var hostColorY = new ToolStripControlHost(btnColorYellow);
@@ -122,7 +123,7 @@ namespace CausalDiagram_1
             _tool.Items.Add(hostDelete);
             _tool.Items.Add(hostUndo);
             _tool.Items.Add(hostRedo);
-            _tool.Items.Add(hostFmea);
+            //_tool.Items.Add(hostFmea);
 
             _tool.Items.Add(new ToolStripSeparator());
             _tool.Items.Add(new ToolStripLabel("Цвет:"));
@@ -636,12 +637,12 @@ namespace CausalDiagram_1
             InvalidateCanvas();
         }
 
-        private void ShowFmeaForm()
-        {
-            var f = new FmeaForm(_diagram);
-            f.ShowDialog();
-            InvalidateCanvas();
-        }
+        //private void ShowFmeaForm()
+        //{
+        //    var f = new FmeaForm(_diagram);
+        //    f.ShowDialog();
+        //    InvalidateCanvas();
+        //}
 
         #endregion
 
@@ -650,19 +651,32 @@ namespace CausalDiagram_1
             public Node Node { get; }
             public NodeProxy(Node n) { Node = n; }
 
-            public string Title { get => Node.Title; set => Node.Title = value; }
-            public string Description { get => Node.Description; set => Node.Description = value; }
-            public float Weight { get => Node.Weight; set => Node.Weight = value; }
+            [DisplayName("Название")]
+            [Description("Название узла (краткое)")]
+            public string Название { get => Node.Title; set => Node.Title = value; }
 
-            // expose enum - PropertyGrid отобразит как dropdown
-            public NodeColor Color
+            [DisplayName("Описание")]
+            [Description("Подробное описание причины или следствия")]
+            public string Описание { get => Node.Description; set => Node.Description = value; }
+
+            [DisplayName("Вес")]
+            [Description("Произвольная числовая метрика (вес/важность узла)")]
+            public float Вес { get => Node.Weight; set => Node.Weight = value; }
+
+            [DisplayName("Цвет")]
+            [Description("Выберите цвет узла")]
+            public NodeColor Цвет
             {
                 get => Node.ColorName;
                 set => Node.ColorName = value;
             }
 
+            // Скрываем технические поля FMEA (оставляем в модели, но не показываем в PropertyGrid)
+            [Browsable(false)]
             public int Severity { get => Node.Severity; set => Node.Severity = value; }
+            [Browsable(false)]
             public int Occurrence { get => Node.Occurrence; set => Node.Occurrence = value; }
+            [Browsable(false)]
             public int Detectability { get => Node.Detectability; set => Node.Detectability = value; }
         }
 
