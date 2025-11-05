@@ -47,6 +47,8 @@ namespace CausalDiagram_1
 
         private const int NodeRadius = 40;
 
+        private Node _propGridOldSnapshot = null;
+
         public MainForm()
         {
             Text = "Автомат — причинно-следственная диаграмма (прототип)";
@@ -137,7 +139,28 @@ namespace CausalDiagram_1
             // --- PropertyGrid (справа) ---
             _propGrid = new PropertyGrid { Dock = DockStyle.Right, Width = 300 };
             // чтобы изменения в PropertyGrid сразу перерисовывали холст
-            _propGrid.PropertyValueChanged += (s, e) => InvalidateCanvas();
+            _propGrid.PropertyValueChanged += (s, e) => {
+                // SelectedObject должен быть NodeProxy
+                if (_propGrid.SelectedObject is NodeProxy proxy)
+                {
+                    var node = proxy.Node;
+                    var newSnapshot = CloneNode(node);
+
+                    if (_propGridOldSnapshot != null)
+                    {
+                        var cmd = new EditNodePropertiesCommand(node, _propGridOldSnapshot, newSnapshot);
+                        _cmd.ExecuteCommand(cmd);
+                        _propGridOldSnapshot = CloneNode(node); // обновляем запас на следующую правку
+                    }
+                    else
+                    {
+                        // если по каким-то причинам нет старого снапшота — всё равно обновим
+                        _propGridOldSnapshot = CloneNode(node);
+                    }
+
+                    InvalidateCanvas();
+                }
+            };
 
             // --- Canvas (центр) ---
             _canvas = new Panel { Dock = DockStyle.Fill, BackColor = Color.White };
@@ -444,14 +467,32 @@ namespace CausalDiagram_1
                 {
                     _dragNode = node;
                     _dragStart = new PointF(node.X, node.Y);
+                    _propGridOldSnapshot = CloneNode(node); // сохраняем старое состояние до редактирования
                     _propGrid.SelectedObject = new NodeProxy(node);
                     return;
                 }
                 else
                 {
                     _propGrid.SelectedObject = null;
+                    _propGridOldSnapshot = null;
                 }
             }
+        }
+        private Node CloneNode(Node n)
+        {
+            return new Node
+            {
+                Id = n.Id,
+                Title = n.Title,
+                Description = n.Description,
+                X = n.X,
+                Y = n.Y,
+                Weight = n.Weight,
+                ColorName = n.ColorName,
+                Severity = n.Severity,
+                Occurrence = n.Occurrence,
+                Detectability = n.Detectability
+            };
         }
 
         private void Canvas_MouseMove(object sender, MouseEventArgs e)

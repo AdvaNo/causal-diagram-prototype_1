@@ -135,4 +135,41 @@ namespace CausalDiagram_1
         }
     }
 
+    // командa редактирования свойств узла — сохраняет старое и новое состояние узла
+    public class EditNodePropertiesCommand : ICommand
+    {
+        private readonly Node _node;
+        private readonly Node _oldSnapshot;
+        private readonly Node _newSnapshot;
+
+        public EditNodePropertiesCommand(Node node, Node oldSnapshot, Node newSnapshot)
+        {
+            _node = node;
+            _oldSnapshot = oldSnapshot;
+            _newSnapshot = newSnapshot;
+        }
+
+        public void Execute()
+        {
+            Apply(_newSnapshot);
+        }
+
+        public void Undo()
+        {
+            Apply(_oldSnapshot);
+        }
+
+        private void Apply(Node s)
+        {
+            // применяем по полям (не меняем Id,X,Y)
+            _node.Title = s.Title;
+            _node.Description = s.Description;
+            _node.Weight = s.Weight;
+            _node.ColorName = s.ColorName;
+            _node.Severity = s.Severity;
+            _node.Occurrence = s.Occurrence;
+            _node.Detectability = s.Detectability;
+        }
+    }
+
 }
