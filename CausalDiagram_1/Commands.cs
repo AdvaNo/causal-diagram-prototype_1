@@ -172,4 +172,29 @@ namespace CausalDiagram_1
         }
     }
 
+    // ChangeNodeColorCommand — смена цвета узла с поддержкой undo/redo
+    public class ChangeNodeColorCommand : ICommand
+    {
+        private readonly Node _node;
+        private readonly NodeColor _oldColor;
+        private readonly NodeColor _newColor;
+
+        public ChangeNodeColorCommand(Node node, NodeColor newColor)
+        {
+            _node = node;
+            _oldColor = node.ColorName;
+            _newColor = newColor;
+        }
+
+        public void Execute()
+        {
+            _node.ColorName = _newColor;
+        }
+
+        public void Undo()
+        {
+            _node.ColorName = _oldColor;
+        }
+    }
+
 }

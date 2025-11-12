@@ -32,11 +32,11 @@ namespace CausalDiagram_1
         private Panel _canvas;
         private ToolStrip _tool;
         private PropertyGrid _propGrid;
-        private Button _btnAddNode, _btnConnect, _btnDelete, _btnUndo, _btnRedo, _btnFmea;
+        private Button _btnAddNode, _btnConnect, _btnDelete, _btnUndo, _btnRedo, _btnPaint /*_btnFmea*/;
         private string _currentFile;
 
         // Interaction state
-        private enum Mode { Select, AddNode, Connect, Pan }
+        private enum Mode { Select, AddNode, Connect, Pan, Paint }
         private Mode _mode = Mode.Select;
         private Node _dragNode = null;
         private PointF _dragStart;
@@ -89,6 +89,12 @@ namespace CausalDiagram_1
             _btnUndo.Click += (s, e) => { _cmd.Undo(); InvalidateCanvas(); };
             _btnRedo.Click += (s, e) => { _cmd.Redo(); InvalidateCanvas(); };
             //_btnFmea.Click += (s, e) => ShowFmeaForm();
+            _btnPaint = new Button { Text = "Покрасить" };
+            _btnPaint.Click += (s, e) =>
+            {
+                // переключаем режим Paint при нажатии
+                SetMode(Mode.Paint);
+            };
 
             // Цветовые кнопки (ToolStrip кнопки удобнее, но мы используем обычные Button-hosts)
             var btnColorGreen = new Button { Text = "Зелёный" };
@@ -107,6 +113,7 @@ namespace CausalDiagram_1
             var hostUndo = new ToolStripControlHost(_btnUndo);
             var hostRedo = new ToolStripControlHost(_btnRedo);
             //var hostFmea = new ToolStripControlHost(_btnFmea);
+            var hostPaint = new ToolStripControlHost(_btnPaint);
 
             var hostColorG = new ToolStripControlHost(btnColorGreen);
             var hostColorY = new ToolStripControlHost(btnColorYellow);
@@ -126,6 +133,7 @@ namespace CausalDiagram_1
             _tool.Items.Add(hostUndo);
             _tool.Items.Add(hostRedo);
             //_tool.Items.Add(hostFmea);
+            _tool.Items.Add(hostPaint);
 
             _tool.Items.Add(new ToolStripSeparator());
             _tool.Items.Add(new ToolStripLabel("Цвет:"));
@@ -221,6 +229,8 @@ namespace CausalDiagram_1
         {
             _btnAddNode.BackColor = _mode == Mode.AddNode ? Color.LightGreen : SystemColors.Control;
             _btnConnect.BackColor = _mode == Mode.Connect ? Color.LightGreen : SystemColors.Control;
+            _btnSelect.BackColor = (_mode == Mode.Select) ? Color.LightGreen : SystemColors.Control;
+            _btnPaint.BackColor = (_mode == Mode.Paint) ? Color.LightGreen : SystemColors.Control;
         }
 
         #region Canvas drawing & helpers
@@ -420,6 +430,18 @@ namespace CausalDiagram_1
         {
             _canvas.Focus();
             var p = ScreenToCanvas(e.Location);
+
+            if (_mode == Mode.Paint && e.Button == MouseButtons.Left)
+            {
+                var node = HitTestNode(p);
+                if (node != null)
+                {
+                    var cmd = new ChangeNodeColorCommand(node, _currentColor);
+                    _cmd.ExecuteCommand(cmd);
+                    InvalidateCanvas();
+                }
+                return; // выбрать цвет - пократсить - по узлу
+            }
 
             if (e.Button == MouseButtons.Middle)
             {
