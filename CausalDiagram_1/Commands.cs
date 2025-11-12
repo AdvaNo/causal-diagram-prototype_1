@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 
 
 namespace CausalDiagram_1
@@ -194,6 +195,35 @@ namespace CausalDiagram_1
         public void Undo()
         {
             _node.ColorName = _oldColor;
+        }
+    }
+
+    // RemoveEdgeCommand — удаление ребра (undo/redo)
+    public class RemoveEdgeCommand : ICommand
+    {
+        private readonly Diagram _diagram;
+        private readonly Edge _edge;
+
+        public RemoveEdgeCommand(Diagram diagram, Edge edge)
+        {
+            _diagram = diagram;
+            // делаем копию ребра (на всякий случай)
+            _edge = new Edge { Id = edge.Id, From = edge.From, To = edge.To };
+        }
+
+        public void Execute()
+        {
+            var existing = _diagram.Edges.FirstOrDefault(e => e.Id == _edge.Id);
+            if (existing != null) _diagram.Edges.Remove(existing);
+        }
+
+        public void Undo()
+        {
+            // восстановим, если не существует
+            if (!_diagram.Edges.Any(e => e.Id == _edge.Id))
+            {
+                _diagram.Edges.Add(_edge);
+            }
         }
     }
 

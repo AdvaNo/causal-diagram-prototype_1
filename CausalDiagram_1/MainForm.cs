@@ -49,6 +49,14 @@ namespace CausalDiagram_1
 
         private Node _propGridOldSnapshot = null;
 
+        // выбранное ребро (если есть)
+        private Guid _selectedEdgeId = Guid.Empty;
+        // порог для hit-test по ребру (в пикселях, в координатах canvas)
+        private const float EdgeHitTestThreshold = 8f;
+
+        //меню при узле
+        private ContextMenuStrip _canvasContext;
+
         public MainForm()
         {
             Text = "Автомат — причинно-следственная диаграмма (прототип)";
@@ -140,6 +148,27 @@ namespace CausalDiagram_1
             _tool.Items.Add(hostColorG);
             _tool.Items.Add(hostColorY);
             _tool.Items.Add(hostColorR);
+
+            //клавиша delete
+            this.KeyPreview = true;
+            this.KeyDown += MainForm_KeyDown;
+
+            _canvasContext = new ContextMenuStrip();
+            _canvasContext.Items.Add("Удалить связь", null, (s, e) =>
+            {
+                if (_selectedEdgeId != Guid.Empty)
+                {
+                    var edge = _diagram.Edges.FirstOrDefault(x => x.Id == _selectedEdgeId);
+                    if (edge != null)
+                    {
+                        var cmd = new RemoveEdgeCommand(_diagram, edge);
+                        _cmd.ExecuteCommand(cmd);
+                        _selectedEdgeId = Guid.Empty;
+                        InvalidateCanvas();
+                    }
+                }
+            });
+
 
             // установить визуальную подсветку цвета по-умолчанию
             UpdateColorButtons(btnColorGreen, btnColorYellow, btnColorRed);
@@ -233,6 +262,16 @@ namespace CausalDiagram_1
             _btnPaint.BackColor = (_mode == Mode.Paint) ? Color.LightGreen : SystemColors.Control;
         }
 
+        private void MainForm_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Delete)
+            {
+                DeleteSelected();
+                e.Handled = true;
+            }
+        }
+
+
         #region Canvas drawing & helpers
 
         private void Canvas_Paint(object sender, PaintEventArgs e)
@@ -255,7 +294,10 @@ namespace CausalDiagram_1
                     var from = _diagram.Nodes.FirstOrDefault(n => n.Id == edge.From);
                     var to = _diagram.Nodes.FirstOrDefault(n => n.Id == edge.To);
                     if (from == null || to == null) continue;
-                    DrawArrow(g, new PointF(from.X, from.Y), new PointF(to.X, to.Y));
+
+                    bool isSelected = (edge.Id == _selectedEdgeId);
+
+                    DrawArrow(g, new PointF(from.X, from.Y), new PointF(to.X, to.Y), isSelected);
                 }
 
                 // draw nodes
@@ -338,21 +380,61 @@ namespace CausalDiagram_1
             return path;
         }
 
-        private void DrawArrow(Graphics g, PointF pFrom, PointF pTo)
+        //private void DrawArrow(Graphics g, PointF pFrom, PointF pTo)
+        //{
+        //    // получим точки на границах прямоугольников
+        //    var fromRect = new RectangleF(pFrom.X - NodeWidth / 2f, pFrom.Y - NodeHeight / 2f, NodeWidth, NodeHeight);
+        //    var toRect = new RectangleF(pTo.X - NodeWidth / 2f, pTo.Y - NodeHeight / 2f, NodeWidth, NodeHeight);
+
+        //    var pt1 = GetRectBoundaryPointTowards(fromRect, pTo);
+        //    var pt2 = GetRectBoundaryPointTowards(toRect, pFrom); // точка на границе целевого прямоугольника со стороны источника
+
+        //    using (var pen = new Pen(Color.DarkGreen, 2))
+        //    {
+        //        // линия
+        //        g.DrawLine(pen, pt1, pt2);
+
+        //        // стрелка (треугольник) в конце pt2, направлен в сторону от pt1 к pt2
+        //        var dir = new PointF(pt2.X - pt1.X, pt2.Y - pt1.Y);
+        //        float len = (float)Math.Sqrt(dir.X * dir.X + dir.Y * dir.Y);
+        //        if (len < 0.0001f) return;
+        //        var ux = dir.X / len;
+        //        var uy = dir.Y / len;
+
+        //        float arrowLen = 12f;
+        //        float halfWidth = 6f;
+
+        //        // орт влево (перпендикуляр)
+        //        var px = -uy;
+        //        var py = ux;
+
+        //        var a = new PointF(pt2.X, pt2.Y);
+        //        var b = new PointF(pt2.X - ux * arrowLen + px * halfWidth, pt2.Y - uy * arrowLen + py * halfWidth);
+        //        var c = new PointF(pt2.X - ux * arrowLen - px * halfWidth, pt2.Y - uy * arrowLen - py * halfWidth);
+
+        //        g.FillPolygon(Brushes.DarkGreen, new[] { a, b, c });
+        //    }
+        //}
+        // DrawArrow с подсветкой выбранного ребра
+        private void DrawArrow(Graphics g, PointF pFrom, PointF pTo, bool highlight = false)
         {
-            // получим точки на границах прямоугольников
-            var fromRect = new RectangleF(pFrom.X - NodeWidth / 2f, pFrom.Y - NodeHeight / 2f, NodeWidth, NodeHeight);
-            var toRect = new RectangleF(pTo.X - NodeWidth / 2f, pTo.Y - NodeHeight / 2f, NodeWidth, NodeHeight);
+            var penWidth = highlight ? 3f : 2f;
+            var penColor = highlight ? Color.OrangeRed : Color.DarkGreen;
 
-            var pt1 = GetRectBoundaryPointTowards(fromRect, pTo);
-            var pt2 = GetRectBoundaryPointTowards(toRect, pFrom); // точка на границе целевого прямоугольника со стороны источника
-
-            using (var pen = new Pen(Color.DarkGreen, 2))
+            using (var pen = new Pen(penColor, penWidth))
             {
+                pen.EndCap = System.Drawing.Drawing2D.LineCap.Flat;
+                // вычисляем точки на границах прямоугольников
+                var fromRect = new RectangleF(pFrom.X - NodeWidth / 2f, pFrom.Y - NodeHeight / 2f, NodeWidth, NodeHeight);
+                var toRect = new RectangleF(pTo.X - NodeWidth / 2f, pTo.Y - NodeHeight / 2f, NodeWidth, NodeHeight);
+
+                var pt1 = GetRectBoundaryPointTowards(fromRect, pTo);
+                var pt2 = GetRectBoundaryPointTowards(toRect, pFrom);
+
                 // линия
                 g.DrawLine(pen, pt1, pt2);
 
-                // стрелка (треугольник) в конце pt2, направлен в сторону от pt1 к pt2
+                // стрелка (треугольник) в конце pt2
                 var dir = new PointF(pt2.X - pt1.X, pt2.Y - pt1.Y);
                 float len = (float)Math.Sqrt(dir.X * dir.X + dir.Y * dir.Y);
                 if (len < 0.0001f) return;
@@ -361,8 +443,6 @@ namespace CausalDiagram_1
 
                 float arrowLen = 12f;
                 float halfWidth = 6f;
-
-                // орт влево (перпендикуляр)
                 var px = -uy;
                 var py = ux;
 
@@ -370,9 +450,13 @@ namespace CausalDiagram_1
                 var b = new PointF(pt2.X - ux * arrowLen + px * halfWidth, pt2.Y - uy * arrowLen + py * halfWidth);
                 var c = new PointF(pt2.X - ux * arrowLen - px * halfWidth, pt2.Y - uy * arrowLen - py * halfWidth);
 
-                g.FillPolygon(Brushes.DarkGreen, new[] { a, b, c });
+                using (var brush = new SolidBrush(pen.Color))
+                {
+                    g.FillPolygon(brush, new[] { a, b, c });
+                }
             }
         }
+
 
         // Возвращает точку на границе rect в направлении к target
         private PointF GetRectBoundaryPointTowards(RectangleF rect, PointF target)
@@ -414,6 +498,42 @@ namespace CausalDiagram_1
             var dy = y1 - y2;
             return (float)Math.Sqrt(dx * dx + dy * dy);
         }
+
+        // проверяет, попадает ли canvasPoint близко к какой-либо линии-ребру; возвращает Edge или null
+        private Edge HitTestEdge(PointF canvasPoint)
+        {
+            foreach (var edge in _diagram.Edges)
+            {
+                var from = _diagram.Nodes.FirstOrDefault(n => n.Id == edge.From);
+                var to = _diagram.Nodes.FirstOrDefault(n => n.Id == edge.To);
+                if (from == null || to == null) continue;
+
+                var p1 = GetRectBoundaryPointTowards(new RectangleF(from.X - NodeWidth / 2f, from.Y - NodeHeight / 2f, NodeWidth, NodeHeight), new PointF(to.X, to.Y));
+                var p2 = GetRectBoundaryPointTowards(new RectangleF(to.X - NodeWidth / 2f, to.Y - NodeHeight / 2f, NodeWidth, NodeHeight), new PointF(from.X, from.Y));
+
+                float d = DistancePointToSegment(canvasPoint, p1, p2);
+                if (d <= EdgeHitTestThreshold) return edge;
+            }
+            return null;
+        }
+
+        // helper: расстояние от точки p до отрезка a-b
+        private float DistancePointToSegment(PointF p, PointF a, PointF b)
+        {
+            float vx = b.X - a.X;
+            float vy = b.Y - a.Y;
+            float wx = p.X - a.X;
+            float wy = p.Y - a.Y;
+            float c1 = vx * wx + vy * wy;
+            if (c1 <= 0) return Distance(p.X, p.Y, a.X, a.Y);
+            float c2 = vx * vx + vy * vy;
+            if (c2 <= c1) return Distance(p.X, p.Y, b.X, b.Y);
+            float t = c1 / c2;
+            float projX = a.X + t * vx;
+            float projY = a.Y + t * vy;
+            return Distance(p.X, p.Y, projX, projY);
+        }
+
 
         private void InvalidateCanvas() => _canvas.Invalidate();
 
@@ -481,9 +601,23 @@ namespace CausalDiagram_1
                 }
             }
 
-            // В режиме Select: выбор и/или перетаскивание узла
+            // В режиме Select: выбор и/или перетаскивание узла и ребёр
             if (_mode == Mode.Select && e.Button == MouseButtons.Left)
             {
+
+                // сначала проверим, не попал ли пользователь по ребру
+                var hitEdge = HitTestEdge(p);
+                if (hitEdge != null)
+                {
+                    _selectedEdgeId = hitEdge.Id;
+                    // снимем выделение узла (если нужно)
+                    _propGrid.SelectedObject = null;
+                    _dragNode = null;
+                    InvalidateCanvas();
+                    return;
+                }
+
+                //просто выбор узла
                 var node = HitTestNode(p);
                 if (node != null)
                 {
@@ -497,6 +631,7 @@ namespace CausalDiagram_1
                 {
                     _propGrid.SelectedObject = null;
                     _propGridOldSnapshot = null;
+                    _selectedEdgeId = Guid.Empty;
                 }
             }
         }
@@ -560,6 +695,18 @@ namespace CausalDiagram_1
                 InvalidateCanvas();
                 return;
             }
+
+            if (e.Button == MouseButtons.Right)
+            {
+                //var p = ScreenToCanvas(e.Location);
+                var hit = HitTestEdge(p);
+                if (hit != null)
+                {
+                    _selectedEdgeId = hit.Id;
+                    _canvasContext.Show(_canvas, e.Location);
+                }
+            }
+
         }
 
         private void Canvas_MouseWheel(object sender, MouseEventArgs e)
@@ -687,6 +834,21 @@ namespace CausalDiagram_1
 
         private void DeleteSelected()
         {
+            // если выделено ребро — удаляем его
+            if (_selectedEdgeId != Guid.Empty)
+            {
+                var edge = _diagram.Edges.FirstOrDefault(e => e.Id == _selectedEdgeId);
+                if (edge != null)
+                {
+                    var cmdEdge = new RemoveEdgeCommand(_diagram, edge);
+                    _cmd.ExecuteCommand(cmdEdge);
+                    _selectedEdgeId = Guid.Empty;
+                    InvalidateCanvas();
+                    return;
+                }
+            }
+
+            //удаляем узел
             var sel = _propGrid.SelectedObject as NodeProxy;
             if (sel == null)
             {
