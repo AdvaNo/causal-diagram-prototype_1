@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -57,6 +58,21 @@ namespace CausalDiagram_1
         //меню при узле
         private ContextMenuStrip _canvasContext;
 
+        // --- Grid ---
+        private bool _showGrid = false;
+        private int _gridStep = 20; // пиксели
+        private bool _snapToGrid = true; // при создании/перемещении привязываем к сетке
+
+        // --- Copy/Paste ---
+        private const string CLIPBOARD_FORMAT = "CausalDiagramSubgraph_v1"; // необязательный, используем plain text JSON
+                                                                            // для простоты используем Clipboard.SetText/GetText с JSON
+
+        // --- Autosave ---
+        private System.Windows.Forms.Timer _autosaveTimer;
+        private string _autosavePath;
+        private int _autosaveIntervalMs = 30000; // 30 секунд
+
+
         public MainForm()
         {
             Text = "Автомат — причинно-следственная диаграмма (прототип)";
@@ -64,6 +80,32 @@ namespace CausalDiagram_1
             Height = 800;
 
             InitializeUi();
+
+            try
+            {
+                _autosavePath = Path.Combine(Path.GetTempPath(), "causal_diagram_autosave.json");
+                if (File.Exists(_autosavePath))
+                {
+                    var res = MessageBox.Show("Найдено автосохранение. Восстановить?", "Восстановление", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                    if (res == DialogResult.Yes)
+                    {
+                        var txt = File.ReadAllText(_autosavePath);
+                        var loaded = JsonConvert.DeserializeObject<Diagram>(txt);
+                        if (loaded != null)
+                        {
+                            _diagram = loaded;
+                            _cmd.Clear(); // очистим стек команд после восстановления
+                            InvalidateCanvas();
+                            if (_statusLabel != null) _statusLabel.Text = "Восстановлено автосохранение";
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // не допускаем падения формы из-за ошибки восстановления
+                MessageBox.Show("Ошибка при восстановлении автосохранения: " + ex.Message, "Восстановление", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
         }
 
         private void InitializeUi()
@@ -108,7 +150,18 @@ namespace CausalDiagram_1
             var btnColorGreen = new Button { Text = "Зелёный" };
             var btnColorYellow = new Button { Text = "Жёлтый" };
             var btnColorRed = new Button { Text = "Красный" };
+            var btnGrid = new Button { Text = "Сетка" };
+            var btnCopy = new Button { Text = "Копировать" };
+            var btnPaste = new Button { Text = "Вставить" };
 
+            btnGrid.Click += (s, e) =>
+            {
+                _showGrid = !_showGrid;
+                btnGrid.BackColor = _showGrid ? Color.LightGreen : SystemColors.Control;
+                InvalidateCanvas();
+            };
+            btnCopy.Click += (s, e) => CopySelected();
+            btnPaste.Click += (s, e) => PasteFromClipboard();
             btnColorGreen.Click += (s, e) => { _currentColor = NodeColor.Green; UpdateColorButtons(btnColorGreen, btnColorYellow, btnColorRed); };
             btnColorYellow.Click += (s, e) => { _currentColor = NodeColor.Yellow; UpdateColorButtons(btnColorGreen, btnColorYellow, btnColorRed); };
             btnColorRed.Click += (s, e) => { _currentColor = NodeColor.Red; UpdateColorButtons(btnColorGreen, btnColorYellow, btnColorRed); };
@@ -122,6 +175,9 @@ namespace CausalDiagram_1
             var hostRedo = new ToolStripControlHost(_btnRedo);
             //var hostFmea = new ToolStripControlHost(_btnFmea);
             var hostPaint = new ToolStripControlHost(_btnPaint);
+            var hostGrid = new ToolStripControlHost(btnGrid);
+            var hostCopy = new ToolStripControlHost(btnCopy);
+            var hostPaste = new ToolStripControlHost(btnPaste);
 
             var hostColorG = new ToolStripControlHost(btnColorGreen);
             var hostColorY = new ToolStripControlHost(btnColorYellow);
@@ -148,6 +204,11 @@ namespace CausalDiagram_1
             _tool.Items.Add(hostColorG);
             _tool.Items.Add(hostColorY);
             _tool.Items.Add(hostColorR);
+
+            _tool.Items.Add(new ToolStripSeparator());
+            _tool.Items.Add(hostGrid);
+            _tool.Items.Add(hostCopy);
+            _tool.Items.Add(hostPaste);
 
             //клавиша delete
             this.KeyPreview = true;
@@ -221,6 +282,60 @@ namespace CausalDiagram_1
             Controls.Add(_tool);        // сверху
             Controls.Add(_statusStrip); // снизу
 
+            // Autosave initialization
+            _autosavePath = Path.Combine(Path.GetTempPath(), "causal_diagram_autosave.json");
+            _autosaveTimer = new System.Windows.Forms.Timer();
+            _autosaveTimer.Interval = _autosaveIntervalMs;
+            _autosaveTimer.Tick += (s, e) =>
+            {
+                try
+                {
+                    var json = JsonConvert.SerializeObject(_diagram, Formatting.Indented);
+                    File.WriteAllText(_autosavePath, json);
+                    // можно обновлять статус
+                    _statusLabel.Text = "Автосохранение " + DateTime.Now.ToString("T");
+                }
+                catch { /* молча */ }
+            };
+            _autosaveTimer.Start();
+
+            // --- Autosave initialization (добавьте в конец InitializeUi) ---
+            _autosavePath = Path.Combine(Path.GetTempPath(), "causal_diagram_autosave.json");
+            _autosaveTimer = new System.Windows.Forms.Timer();
+            _autosaveTimer.Interval = _autosaveIntervalMs;
+            _autosaveTimer.Tick += (s, e) =>
+            {
+                try
+                {
+                    var json = JsonConvert.SerializeObject(_diagram, Formatting.Indented);
+                    File.WriteAllText(_autosavePath, json);
+                    // optionally update status
+                    if (_statusLabel != null) _statusLabel.Text = "Автосохранение " + DateTime.Now.ToString("T");
+                }
+                catch
+                {
+                    // можно логировать ошибку, но молча продолжим
+                }
+            };
+            _autosaveTimer.Start();
+
+            // подписываемся на закрытие формы, чтобы почистить автосохранение
+            this.FormClosing += (s, e) =>
+            {
+                try
+                {
+                    _autosaveTimer?.Stop();
+                    if (File.Exists(_autosavePath))
+                    {
+                        File.Delete(_autosavePath);
+                    }
+                }
+                catch
+                {
+                    // молча
+                }
+            };
+
             // Установим режим по умолчанию
             _mode = Mode.Select;
 
@@ -229,6 +344,8 @@ namespace CausalDiagram_1
             UpdateStatusText();
             InvalidateCanvas();
         }
+
+
 
         private void UpdateColorButtons(Button g, Button y, Button r)
         {
@@ -287,6 +404,31 @@ namespace CausalDiagram_1
                 m.Scale(_scale, _scale);
                 m.Translate(_panOffset.X, _panOffset.Y);
                 g.Transform = m;
+
+                // draw grid (если включена)
+                if (_showGrid)
+                {
+                    // рисуем в мировых координатах
+                    // вычислим видимые границы в мировых коор. исходя из размера канвы и трансформации:
+                    var clientRect = _canvas.ClientRectangle;
+                    // левый верх в мировых
+                    var topLeft = ScreenToCanvas(new Point(0, 0));
+                    var bottomRight = ScreenToCanvas(new Point(_canvas.Width, _canvas.Height));
+
+                    float x0 = (float)Math.Floor(topLeft.X / _gridStep) * _gridStep;
+                    float x1 = (float)Math.Ceiling(bottomRight.X / _gridStep) * _gridStep;
+                    float y0 = (float)Math.Floor(topLeft.Y / _gridStep) * _gridStep;
+                    float y1 = (float)Math.Ceiling(bottomRight.Y / _gridStep) * _gridStep;
+
+                    using (var pen = new Pen(Color.FromArgb(120, Color.LightGray), 1f))
+                    {
+                        pen.DashStyle = System.Drawing.Drawing2D.DashStyle.Dot;
+                        for (float gx = x0; gx <= x1; gx += _gridStep)
+                            g.DrawLine(pen, gx, y0, gx, y1);
+                        for (float gy = y0; gy <= y1; gy += _gridStep)
+                            g.DrawLine(pen, x0, gy, x1, gy);
+                    }
+                }
 
                 // draw edges
                 foreach (var edge in _diagram.Edges)
@@ -572,7 +714,14 @@ namespace CausalDiagram_1
 
             if (_mode == Mode.AddNode && e.Button == MouseButtons.Left)
             {
-                var node = new Node { X = p.X, Y = p.Y, Title = "Новый узел", ColorName = _currentColor };
+                float nx = p.X;
+                float ny = p.Y;
+                if (_snapToGrid && _gridStep > 0)
+                {
+                    nx = (float)Math.Round(nx / _gridStep) * _gridStep;
+                    ny = (float)Math.Round(ny / _gridStep) * _gridStep;
+                }
+                var node = new Node { X = nx, Y = ny, Title = "Новый узел", ColorName = _currentColor };
                 var cmd = new AddNodeCommand(_diagram, node);
                 _cmd.ExecuteCommand(cmd);
                 InvalidateCanvas();
@@ -689,6 +838,14 @@ namespace CausalDiagram_1
             {
                 var newX = _dragNode.X;
                 var newY = _dragNode.Y;
+                if (_snapToGrid && _gridStep > 0)
+                {
+                    newX = (float)Math.Round(newX / _gridStep) * _gridStep;
+                    newY = (float)Math.Round(newY / _gridStep) * _gridStep;
+                    // применим скорректированные координаты к узлу и перерисуем
+                    _dragNode.X = newX;
+                    _dragNode.Y = newY;
+                }
                 var cmd = new MoveNodeCommand(_dragNode, _dragStart.X, _dragStart.Y, newX, newY);
                 _cmd.ExecuteCommand(cmd);
                 _dragNode = null;
@@ -911,5 +1068,104 @@ namespace CausalDiagram_1
             var prop = typeof(Control).GetProperty("DoubleBuffered", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             prop.SetValue(c, setting, null);
         }
+
+        private void CopySelected()
+        {
+            // Для MVP поддерживаем копирование одного выбранного узла (NodeProxy) и внутренних ребер (если несколько — можно расширить)
+            if (!(_propGrid.SelectedObject is NodeProxy proxy))
+            {
+                MessageBox.Show("Выберите узел, который хотите копировать.");
+                return;
+            }
+
+            var node = proxy.Node;
+
+            // строим поддиаграмму: узел + все ребра между выбранными (т.к. один узел — никаких внутренних ребер)
+            var sub = new Diagram();
+            // копируем узел (без переноски Id? сохраняем исходные Id чтобы при вставке назначить новые)
+            var nodeCopy = new Node
+            {
+                Id = node.Id, // сохраняем старый id в JSON как "source id"
+                Title = node.Title,
+                Description = node.Description,
+                X = node.X,
+                Y = node.Y,
+                Weight = node.Weight,
+                ColorName = node.ColorName,
+                Severity = node.Severity,
+                Occurrence = node.Occurrence,
+                Detectability = node.Detectability
+            };
+            sub.Nodes.Add(nodeCopy);
+
+            // ребра между выбранными (для одного узла их нет, но код универсален)
+            var selIds = new HashSet<Guid>(sub.Nodes.Select(n => n.Id));
+            foreach (var e in _diagram.Edges)
+            {
+                if (selIds.Contains(e.From) && selIds.Contains(e.To))
+                    sub.Edges.Add(new Edge { Id = e.Id, From = e.From, To = e.To });
+            }
+
+            var json = JsonConvert.SerializeObject(sub, Formatting.Indented);
+            Clipboard.SetText(json);
+            // Информируем пользователя
+            _statusLabel.Text = "Копия в буфере";
+        }
+
+        private void PasteFromClipboard()
+        {
+            if (!Clipboard.ContainsText()) { MessageBox.Show("Буфер пуст или не содержит диаграмму."); return; }
+
+            string text = Clipboard.GetText();
+            Diagram sub;
+            try
+            {
+                sub = JsonConvert.DeserializeObject<Diagram>(text);
+                if (sub == null || sub.Nodes.Count == 0) { MessageBox.Show("Буфер не содержит корректных данных."); return; }
+            }
+            catch
+            {
+                MessageBox.Show("Ошибка чтения данных из буфера.");
+                return;
+            }
+
+            // Мап старых id -> новых
+            var idMap = new Dictionary<Guid, Guid>();
+            // вставляем узлы с новым Id и немного смещаем координаты, чтобы видно было
+            foreach (var n in sub.Nodes)
+            {
+                var newNode = new Node
+                {
+                    Id = Guid.NewGuid(),
+                    Title = n.Title,
+                    Description = n.Description,
+                    X = n.X + 20, // смещение 20 px вправо/вниз
+                    Y = n.Y + 20,
+                    Weight = n.Weight,
+                    ColorName = n.ColorName,
+                    Severity = n.Severity,
+                    Occurrence = n.Occurrence,
+                    Detectability = n.Detectability
+                };
+                idMap[n.Id] = newNode.Id;
+                var cmd = new AddNodeCommand(_diagram, newNode);
+                _cmd.ExecuteCommand(cmd);
+            }
+
+            // вставляем ребра между новыми узлами
+            foreach (var e in sub.Edges)
+            {
+                if (idMap.TryGetValue(e.From, out var nf) && idMap.TryGetValue(e.To, out var nt))
+                {
+                    var edge = new Edge { Id = Guid.NewGuid(), From = nf, To = nt };
+                    var cmd = new AddEdgeCommand(_diagram, edge);
+                    _cmd.ExecuteCommand(cmd);
+                }
+            }
+
+            InvalidateCanvas();
+            _statusLabel.Text = "Вставлено из буфера";
+        }
+
     }
 }
