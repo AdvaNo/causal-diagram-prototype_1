@@ -46,7 +46,7 @@ namespace CausalDiagram_1
         [JsonIgnore]
         public bool IsHighlighted { get; set; } = false;
 
-        [JsonIgnore]
+        //[JsonIgnore]
         public bool IsForbidden { get; set; } = false;
     }
 

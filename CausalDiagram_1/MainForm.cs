@@ -1221,7 +1221,8 @@ namespace CausalDiagram_1
                         if (from == null || to == null) continue;
 
                         bool isSelOrHighlight = (edge.Id == _selectedEdgeId) || edge.IsHighlighted;
-                        DrawArrow(g, new PointF(from.X, from.Y), new PointF(to.X, to.Y), isSelOrHighlight);
+                        bool isForbidden = edge.IsForbidden;
+                        DrawArrow(g, new PointF(from.X, from.Y), new PointF(to.X, to.Y), isSelOrHighlight, isForbidden);
                     }
 
 
