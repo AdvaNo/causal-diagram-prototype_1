@@ -33,7 +33,7 @@ namespace CausalDiagram_1
         private Panel _canvas;
         private ToolStrip _tool;
         private PropertyGrid _propGrid;
-        private Button _btnAddNode, _btnConnect, _btnDelete, _btnUndo, _btnRedo, _btnPaint /*_btnFmea*/;
+        private Button _btnAddNode, _btnConnect, _btnDelete, _btnUndo, _btnRedo, _btnPaint, _btnTraceCause  /*_btnFmea*/;
         private string _currentFile;
 
         // Interaction state
@@ -134,6 +134,7 @@ namespace CausalDiagram_1
             _btnDelete = new Button { Text = "Удалить" };
             _btnUndo = new Button { Text = "Отменить" };
             _btnRedo = new Button { Text = "Вернуть" };
+            _btnTraceCause = new Button { Text = "Найти причину" };
             //_btnFmea = new Button { Text = "FMEA (RPN)" };
 
             // события
@@ -150,6 +151,7 @@ namespace CausalDiagram_1
                 // переключаем режим Paint при нажатии
                 SetMode(Mode.Paint);
             };
+            _btnTraceCause.Click += (s, e) => DoTraceCause();
 
             // Цветовые кнопки (ToolStrip кнопки удобнее, но мы используем обычные Button-hosts)
             var btnColorGreen = new Button { Text = "Зелёный" };
@@ -203,6 +205,7 @@ namespace CausalDiagram_1
             _tool.Items.Add(hostRedo);
             //_tool.Items.Add(hostFmea);
             _tool.Items.Add(hostPaint);
+            _tool.Items.Add(new ToolStripControlHost(_btnTraceCause));
 
             _tool.Items.Add(new ToolStripSeparator());
             _tool.Items.Add(new ToolStripLabel("Цвет:"));
@@ -371,6 +374,9 @@ namespace CausalDiagram_1
 
         private void SetMode(Mode m)
         {
+            // очищаем старые подсветки при смене режима
+            ClearHighlights();
+
             _mode = m;
             _connectFrom = null;
             UpdateStatus();
@@ -450,10 +456,8 @@ namespace CausalDiagram_1
                     var from = _diagram.Nodes.FirstOrDefault(n => n.Id == edge.From);
                     var to = _diagram.Nodes.FirstOrDefault(n => n.Id == edge.To);
                     if (from == null || to == null) continue;
-
-                    bool isSelected = (edge.Id == _selectedEdgeId);
-
-                    DrawArrow(g, new PointF(from.X, from.Y), new PointF(to.X, to.Y), isSelected);
+                    bool isSelOrHighlight = (edge.Id == _selectedEdgeId) || edge.IsHighlighted;
+                    DrawArrow(g, new PointF(from.X, from.Y), new PointF(to.X, to.Y), isSelOrHighlight);
                 }
 
                 // draw nodes
@@ -504,47 +508,73 @@ namespace CausalDiagram_1
             var center = new PointF(node.X, node.Y);
             var rect = new RectangleF(center.X - NodeWidth / 2f, center.Y - NodeHeight / 2f, NodeWidth, NodeHeight);
 
+            // выбор заливки и формы (острые/закруглённые)
             Brush fill;
-            Pen pen = Pens.DodgerBlue;
-            bool isSelected = _selectedNodeIds.Contains(node.Id);
-
+            bool rounded = false;
             switch (node.ColorName)
             {
                 case NodeColor.Green:
                     fill = Brushes.LightGreen;
-                    // острые углы — простая прямоугольная отрисовка
-                    g.FillRectangle(fill, rect);
-                    g.DrawRectangle(Pens.Black, rect.X, rect.Y, rect.Width, rect.Height);
+                    rounded = false;
                     break;
                 case NodeColor.Yellow:
                     fill = Brushes.LightYellow;
-                    g.FillRectangle(fill, rect);
-                    g.DrawRectangle(Pens.Black, rect.X, rect.Y, rect.Width, rect.Height);
+                    rounded = false;
                     break;
                 case NodeColor.Red:
                     fill = Brushes.LightCoral;
-                    // закруглённые углы
-                    using (var path = RoundedRectPath(rect, 12f))
-                    {
-                        g.FillPath(fill, path);
-                        g.DrawPath(Pens.DarkRed, path);
-                    }
+                    rounded = true;
                     break;
                 default:
                     fill = Brushes.LightGray;
-                    g.FillRectangle(fill, rect);
-                    g.DrawRectangle(Pens.Black, rect.X, rect.Y, rect.Width, rect.Height);
+                    rounded = false;
                     break;
             }
 
-            // если выбран - нарисовать яркую обводку поверх
+            // рисуем базовую форму
+            if (rounded)
+            {
+                using (var path = RoundedRectPath(rect, 12f))
+                {
+                    g.FillPath(fill, path);
+                    using (var borderPen = new Pen(Color.DarkRed, 1f))
+                        g.DrawPath(borderPen, path);
+                }
+            }
+            else
+            {
+                g.FillRectangle(fill, rect);
+                using (var borderPen = new Pen(Color.Black, 1f))
+                    g.DrawRectangle(borderPen, rect.X, rect.Y, rect.Width, rect.Height);
+            }
+
+            // Trace highlight (исходящий от DoTraceCause) — оранжево-красная рамка
+            if (node.IsHighlighted)
+            {
+                using (var hlPen = new Pen(Color.OrangeRed, 3f))
+                {
+                    hlPen.DashStyle = System.Drawing.Drawing2D.DashStyle.Solid;
+                    if (rounded)
+                    {
+                        using (var path = RoundedRectPath(rect, 12f))
+                            g.DrawPath(hlPen, path);
+                    }
+                    else
+                    {
+                        g.DrawRectangle(hlPen, rect.X, rect.Y, rect.Width, rect.Height);
+                    }
+                }
+            }
+
+            // Selection (пользователь выбрал узел) — синяя толстая рамка поверх всего
+            bool isSelected = _selectedNodeIds.Contains(node.Id)
+                              || (_propGrid?.SelectedObject is NodeProxy np && np.Node.Id == node.Id);
             if (isSelected)
             {
-                using (var selPen = new Pen(Color.Blue, 3f))
+                using (var selPen = new Pen(Color.DodgerBlue, 3.5f))
                 {
                     selPen.DashStyle = System.Drawing.Drawing2D.DashStyle.Solid;
-                    // для красного (rounded) можно рисовать path, иначе rectangle
-                    if (node.ColorName == NodeColor.Red)
+                    if (rounded)
                     {
                         using (var path = RoundedRectPath(rect, 12f))
                             g.DrawPath(selPen, path);
@@ -556,8 +586,55 @@ namespace CausalDiagram_1
                 }
             }
 
-            var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-            g.DrawString(node.Title, SystemFonts.DefaultFont, Brushes.Black, center, sf);
+            // Текст: многострочный, центрированный, auto-fit (уменьшение шрифта при необходимости)
+            var text = string.IsNullOrEmpty(node.Title) ? "(без названия)" : node.Title;
+            var sf = new StringFormat
+            {
+                Alignment = StringAlignment.Center,
+                LineAlignment = StringAlignment.Center,
+                Trimming = StringTrimming.EllipsisWord,
+                FormatFlags = StringFormatFlags.LineLimit
+            };
+
+            var layoutRect = RectangleF.Inflate(rect, -6f, -6f); // внутренний отступ
+
+            // Автоуменьшение шрифта, чтобы текст поместился
+            float fontSize = 10f;
+            float minFont = 6f;
+            var baseFamily = SystemFonts.DefaultFont.FontFamily;
+
+            Font font = new Font(baseFamily, fontSize);
+            SizeF measured = g.MeasureString(text, font, (int)layoutRect.Width, sf);
+
+
+            // измерение с временным шрифтом, уменьшение до подходящего размера
+            using (var testFont = new Font(baseFamily, fontSize))
+            {
+                //var measured = g.MeasureString(text, testFont, (int)layoutRect.Width, sf);
+                float current = fontSize;
+                while ((measured.Width > layoutRect.Width || measured.Height > layoutRect.Height) && current > minFont)
+                {
+                    current -= 0.5f;
+                    measured = g.MeasureString(text, new Font(baseFamily, current), (int)layoutRect.Width, sf);
+                }
+
+                using (var finalFont = new Font(baseFamily, Math.Max(current, minFont)))
+                {
+                    g.DrawString(text, finalFont, Brushes.Black, layoutRect, sf);
+                }
+            }
+
+            // Проверим вместимость и уменьшаем при необходимости
+            while ((measured.Height > layoutRect.Height || measured.Width > layoutRect.Width) && fontSize > 6f)
+            {
+                fontSize -= 0.5f;
+                font.Dispose();
+                font = new Font(baseFamily, fontSize);
+                measured = g.MeasureString(text, font, (int)layoutRect.Width, sf);
+            }
+
+            g.DrawString(text, font, Brushes.Black, layoutRect, sf);
+            font.Dispose();
         }
 
         private GraphicsPath RoundedRectPath(RectangleF rect, float radius)
@@ -577,70 +654,68 @@ namespace CausalDiagram_1
             path.CloseFigure();
             return path;
         }
-
-        //private void DrawArrow(Graphics g, PointF pFrom, PointF pTo)
+        //private System.Drawing.Drawing2D.GraphicsPath RoundedRectPath(RectangleF rect, float radius)
         //{
-        //    // получим точки на границах прямоугольников
-        //    var fromRect = new RectangleF(pFrom.X - NodeWidth / 2f, pFrom.Y - NodeHeight / 2f, NodeWidth, NodeHeight);
-        //    var toRect = new RectangleF(pTo.X - NodeWidth / 2f, pTo.Y - NodeHeight / 2f, NodeWidth, NodeHeight);
+        //    var path = new System.Drawing.Drawing2D.GraphicsPath();
+        //    float diameter = radius * 2f;
+        //    var arcRect = new RectangleF(rect.Location, new SizeF(diameter, diameter));
 
-        //    var pt1 = GetRectBoundaryPointTowards(fromRect, pTo);
-        //    var pt2 = GetRectBoundaryPointTowards(toRect, pFrom); // точка на границе целевого прямоугольника со стороны источника
+        //    // top-left
+        //    path.AddArc(arcRect, 180, 90);
 
-        //    using (var pen = new Pen(Color.DarkGreen, 2))
-        //    {
-        //        // линия
-        //        g.DrawLine(pen, pt1, pt2);
+        //    // top-right
+        //    arcRect.X = rect.Right - diameter;
+        //    path.AddArc(arcRect, 270, 90);
 
-        //        // стрелка (треугольник) в конце pt2, направлен в сторону от pt1 к pt2
-        //        var dir = new PointF(pt2.X - pt1.X, pt2.Y - pt1.Y);
-        //        float len = (float)Math.Sqrt(dir.X * dir.X + dir.Y * dir.Y);
-        //        if (len < 0.0001f) return;
-        //        var ux = dir.X / len;
-        //        var uy = dir.Y / len;
+        //    // bottom-right
+        //    arcRect.Y = rect.Bottom - diameter;
+        //    path.AddArc(arcRect, 0, 90);
 
-        //        float arrowLen = 12f;
-        //        float halfWidth = 6f;
+        //    // bottom-left
+        //    arcRect.X = rect.Left;
+        //    path.AddArc(arcRect, 90, 90);
 
-        //        // орт влево (перпендикуляр)
-        //        var px = -uy;
-        //        var py = ux;
-
-        //        var a = new PointF(pt2.X, pt2.Y);
-        //        var b = new PointF(pt2.X - ux * arrowLen + px * halfWidth, pt2.Y - uy * arrowLen + py * halfWidth);
-        //        var c = new PointF(pt2.X - ux * arrowLen - px * halfWidth, pt2.Y - uy * arrowLen - py * halfWidth);
-
-        //        g.FillPolygon(Brushes.DarkGreen, new[] { a, b, c });
-        //    }
+        //    path.CloseFigure();
+        //    return path;
         //}
-        // DrawArrow с подсветкой выбранного ребра
+
+
         private void DrawArrow(Graphics g, PointF pFrom, PointF pTo, bool highlight = false)
         {
+            // Толщина и цвет зависят от состояния (highlight/selected)
             var penWidth = highlight ? 3f : 2f;
             var penColor = highlight ? Color.OrangeRed : Color.DarkGreen;
 
             using (var pen = new Pen(penColor, penWidth))
             {
+                // делаем начало линии более аккуратным при большой толщине
                 pen.EndCap = System.Drawing.Drawing2D.LineCap.Flat;
-                // вычисляем точки на границах прямоугольников
+                pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+                pen.LineJoin = System.Drawing.Drawing2D.LineJoin.Round;
+
+                // вычисляем bounding rect для узлов (как у вас)
                 var fromRect = new RectangleF(pFrom.X - NodeWidth / 2f, pFrom.Y - NodeHeight / 2f, NodeWidth, NodeHeight);
                 var toRect = new RectangleF(pTo.X - NodeWidth / 2f, pTo.Y - NodeHeight / 2f, NodeWidth, NodeHeight);
 
+                // точки на границах прямоугольников (ваша функция должна учитывать форму)
                 var pt1 = GetRectBoundaryPointTowards(fromRect, pTo);
                 var pt2 = GetRectBoundaryPointTowards(toRect, pFrom);
 
-                // линия
+                // основная линия
                 g.DrawLine(pen, pt1, pt2);
 
-                // стрелка (треугольник) в конце pt2
+                // стрелочный наконечник (треугольник) в конце pt2
                 var dir = new PointF(pt2.X - pt1.X, pt2.Y - pt1.Y);
                 float len = (float)Math.Sqrt(dir.X * dir.X + dir.Y * dir.Y);
                 if (len < 0.0001f) return;
                 var ux = dir.X / len;
                 var uy = dir.Y / len;
 
-                float arrowLen = 12f;
-                float halfWidth = 6f;
+                // размер стрелки подстраиваем под толщину линии
+                float arrowLen = 12f + penWidth * 1.5f;
+                float halfWidth = 6f + penWidth;
+
+                // перпендикуляр к направлению
                 var px = -uy;
                 var py = ux;
 
@@ -654,6 +729,7 @@ namespace CausalDiagram_1
                 }
             }
         }
+
 
 
         // Возвращает точку на границе rect в направлении к target
@@ -1018,6 +1094,7 @@ namespace CausalDiagram_1
             _diagram = new Diagram();
             _cmd.Clear();
             _currentFile = null;
+            ClearHighlights();
             InvalidateCanvas();
         }
 
@@ -1040,6 +1117,7 @@ namespace CausalDiagram_1
                     _diagram = JsonConvert.DeserializeObject<Diagram>(txt) ?? new Diagram();
                     _currentFile = ofd.FileName;
                     _cmd.Clear();
+                    ClearHighlights();
                     InvalidateCanvas();
                 }
                 catch (Exception ex)
@@ -1095,14 +1173,17 @@ namespace CausalDiagram_1
                     m.Translate(_panOffset.X, _panOffset.Y);
                     g.Transform = m;
 
-                    // Рисуем ребра (стрелки) через ваш DrawArrow
+                    // Рисуем ребра (стрелки) через DrawArrow - учитываем highlight/selected
                     foreach (var edge in _diagram.Edges)
                     {
                         var from = _diagram.Nodes.FirstOrDefault(n => n.Id == edge.From);
                         var to = _diagram.Nodes.FirstOrDefault(n => n.Id == edge.To);
                         if (from == null || to == null) continue;
-                        DrawArrow(g, new PointF(from.X, from.Y), new PointF(to.X, to.Y));
+
+                        bool isSelOrHighlight = (edge.Id == _selectedEdgeId) || edge.IsHighlighted;
+                        DrawArrow(g, new PointF(from.X, from.Y), new PointF(to.X, to.Y), isSelOrHighlight);
                     }
+
 
                     // Рисуем узлы через ваш DrawNode (он уже рисует прямоугольники/закругления и цвет)
                     foreach (var node in _diagram.Nodes)
@@ -1362,6 +1443,127 @@ namespace CausalDiagram_1
                 _propGrid.SelectedObject = null;
                 _propGridOldSnapshot = null;
             }
+        }
+
+        // Возвращает список путей (каждый путь — список node.Id) от источников к targetId.
+        // maxPaths — ограничение по количеству найденных путей (во избежание combinatorial explosion).
+        // maxDepth — максимальная длина пути.
+        private List<List<Guid>> FindPredecessorPaths(Guid targetId, int maxPaths = 100, int maxDepth = 20)
+        {
+            var result = new List<List<Guid>>();
+            if (targetId == Guid.Empty) return result;
+
+            // Строим обратный adjacency (from <- to)
+            var predecessors = new Dictionary<Guid, List<Guid>>();
+            foreach (var e in _diagram.Edges)
+            {
+                if (!predecessors.ContainsKey(e.To)) predecessors[e.To] = new List<Guid>();
+                predecessors[e.To].Add(e.From);
+            }
+
+            // BFS-like approach storing paths (queue of paths)
+            var q = new Queue<List<Guid>>();
+            q.Enqueue(new List<Guid> { targetId });
+
+            while (q.Count > 0 && result.Count < maxPaths)
+            {
+                var path = q.Dequeue(); // path: [current, ..., target]
+                var current = path[0];
+
+                // if no predecessors -> we've reached a source (path complete). Reverse so source -> ... -> target
+                if (!predecessors.ContainsKey(current) || predecessors[current].Count == 0 || path.Count - 1 >= maxDepth)
+                {
+                    // add reversed copy
+                    var rev = path.ToArray().Reverse().ToList();
+                    result.Add(rev);
+                    continue;
+                }
+
+                // extend
+                foreach (var p in predecessors[current])
+                {
+                    // avoid cycles in path
+                    if (path.Contains(p)) continue;
+                    var newPath = new List<Guid> { p };
+                    newPath.AddRange(path);
+                    q.Enqueue(newPath);
+                    if (result.Count + q.Count > maxPaths * 5) // safe-guard
+                    {
+                        // stop expanding too much (protect from explosion)
+                        break;
+                    }
+                }
+            }
+            return result;
+        }
+
+        private void DoTraceCause()
+        {
+            // Получим выбранный узел (если множественный выбор — берем первый)
+            Guid targetId = Guid.Empty;
+            if (_selectedNodeIds.Count == 1)
+                targetId = _selectedNodeIds.First();
+            else if (_propGrid.SelectedObject is NodeProxy np)
+                targetId = np.Node.Id;
+            else
+            {
+                MessageBox.Show("Выберите один узел (обычно красный) для трассировки причин.", "Трассировка", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            // Очистим старые подсветки
+            foreach (var n in _diagram.Nodes) n.IsHighlighted = false;
+            foreach (var e in _diagram.Edges) e.IsHighlighted = false;
+
+            // Найдём пути
+            var paths = FindPredecessorPaths(targetId, maxPaths: 200, maxDepth: 25);
+
+            // Подсветим узлы и ребра, которые участвуют в найденных путях
+            var nodesInPaths = new HashSet<Guid>();
+            var edgesInPaths = new HashSet<Guid>();
+            foreach (var path in paths)
+            {
+                for (int i = 0; i < path.Count; i++)
+                {
+                    nodesInPaths.Add(path[i]);
+                    if (i < path.Count - 1)
+                    {
+                        // edge from path[i] -> path[i+1]
+                        var edge = _diagram.Edges.FirstOrDefault(ed => ed.From == path[i] && ed.To == path[i + 1]);
+                        if (edge != null) edgesInPaths.Add(edge.Id);
+                    }
+                }
+            }
+
+            foreach (var id in nodesInPaths)
+            {
+                var node = _diagram.Nodes.FirstOrDefault(n => n.Id == id);
+                if (node != null) node.IsHighlighted = true;
+            }
+            foreach (var id in edgesInPaths)
+            {
+                var edge = _diagram.Edges.FirstOrDefault(e => e.Id == id);
+                if (edge != null) edge.IsHighlighted = true;
+            }
+
+            InvalidateCanvas();
+
+            // Показать простую панель отчёта: количество путей, длину кратчайшего пути и список первичных причин
+            var primaryCauses = paths.Select(p => p.First()).Distinct().ToList();
+            string report = $"Найдено путей: {paths.Count}\nУникальных первичных причин: {primaryCauses.Count}\n\nПервые 10 первичных причин:\n";
+            for (int i = 0; i < Math.Min(10, primaryCauses.Count); i++)
+            {
+                var n = _diagram.Nodes.FirstOrDefault(x => x.Id == primaryCauses[i]);
+                report += $"{i + 1}. {n?.Title ?? primaryCauses[i].ToString()} (длина пути: {paths.Where(p => p.First() == primaryCauses[i]).Min(p => p.Count - 1)})\n";
+            }
+            MessageBox.Show(report, "Результат трассировки", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void ClearHighlights()
+        {
+            foreach (var n in _diagram.Nodes) n.IsHighlighted = false;
+            foreach (var e in _diagram.Edges) e.IsHighlighted = false;
+            InvalidateCanvas();
         }
 
     }

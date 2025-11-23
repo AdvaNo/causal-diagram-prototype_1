@@ -30,6 +30,9 @@ namespace CausalDiagram_1
 
         [JsonIgnore]
         public int Rpn => Severity * Occurrence * Detectability;
+
+        [JsonIgnore] // чтобы не сериализовать визуальные состояния
+        public bool IsHighlighted { get; set; } = false;
     }
 
     public class Edge
@@ -37,6 +40,9 @@ namespace CausalDiagram_1
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid From { get; set; }
         public Guid To { get; set; }
+
+        [JsonIgnore]
+        public bool IsHighlighted { get; set; } = false;
     }
 
     public class Diagram
