@@ -33,6 +33,8 @@ namespace CausalDiagram_1
 
         [JsonIgnore] // чтобы не сериализовать визуальные состояния
         public bool IsHighlighted { get; set; } = false;
+
+        public NodeCategory Category { get; set; } = NodeCategory.Компонент;
     }
 
     public class Edge
@@ -43,11 +45,39 @@ namespace CausalDiagram_1
 
         [JsonIgnore]
         public bool IsHighlighted { get; set; } = false;
+
+        [JsonIgnore]
+        public bool IsForbidden { get; set; } = false;
     }
 
     public class Diagram
     {
         public List<Node> Nodes { get; set; } = new List<Node>();
         public List<Edge> Edges { get; set; } = new List<Edge>();
+
+        // добавить правила категоризации в модель, чтобы сохранять/загружать вместе с файлом
+        public List<ForbiddenRule> ForbiddenRules { get; set; } = new List<ForbiddenRule>();
     }
+
+    public enum NodeCategory
+    {
+        Системные = 0,
+        Подсистемные = 1,
+        Компонент = 2,
+        Процесс = 3,
+        Человек = 4
+    }
+
+    public class ForbiddenRule
+    {
+        public NodeCategory FromCategory { get; set; }
+        public NodeCategory ToCategory { get; set; }
+        public string Reason { get; set; } = "";
+
+        public override string ToString()
+        {
+            return $"{FromCategory} → {ToCategory}" + (string.IsNullOrWhiteSpace(Reason) ? "" : $": {Reason}");
+        }
+    }
+
 }

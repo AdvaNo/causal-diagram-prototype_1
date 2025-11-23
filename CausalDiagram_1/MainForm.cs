@@ -19,6 +19,9 @@ namespace CausalDiagram_1
         private Diagram _diagram = new Diagram();
         private readonly CommandManager _cmd = new CommandManager();
 
+        private List<ForbiddenRule> _forbiddenRules = new List<ForbiddenRule>();
+        private bool _enforceForbiddenLinks = true; // если true — запрещённые связи блокируются (показываем диалог)
+
         // Размеры узла (прямоугольник)
         private const int NodeWidth = 120;
         private const int NodeHeight = 60;
@@ -161,6 +164,16 @@ namespace CausalDiagram_1
             var btnCopy = new Button { Text = "Копировать" };
             var btnPaste = new Button { Text = "Вставить" };
 
+            var btnRules = new Button { Text = "Правила связей" };
+            var btnEnforce = new Button { Text = "Enforce: ON" };
+            btnRules.Click += (s, e) => EditForbiddenRules();
+            btnEnforce.Click += (s, e) =>
+            {
+                _enforceForbiddenLinks = !_enforceForbiddenLinks;
+                btnEnforce.Text = _enforceForbiddenLinks ? "Enforce: ON" : "Enforce: OFF";
+            };
+
+
             btnGrid.Click += (s, e) =>
             {
                 _showGrid = !_showGrid;
@@ -190,6 +203,9 @@ namespace CausalDiagram_1
             var hostColorY = new ToolStripControlHost(btnColorYellow);
             var hostColorR = new ToolStripControlHost(btnColorRed);
 
+            var hostRules = new ToolStripControlHost(btnRules);
+            var hostEnforce = new ToolStripControlHost(btnEnforce);
+
             // добавление в тулбар (порядок можно менять)
             _tool.Items.Add(tsiNew);
             _tool.Items.Add(tsiOpen);
@@ -217,6 +233,9 @@ namespace CausalDiagram_1
             _tool.Items.Add(hostGrid);
             _tool.Items.Add(hostCopy);
             _tool.Items.Add(hostPaste);
+
+            _tool.Items.Add(hostRules);
+            _tool.Items.Add(hostEnforce);
 
             //клавиша delete
             this.KeyPreview = true;
@@ -456,8 +475,10 @@ namespace CausalDiagram_1
                     var from = _diagram.Nodes.FirstOrDefault(n => n.Id == edge.From);
                     var to = _diagram.Nodes.FirstOrDefault(n => n.Id == edge.To);
                     if (from == null || to == null) continue;
+
                     bool isSelOrHighlight = (edge.Id == _selectedEdgeId) || edge.IsHighlighted;
-                    DrawArrow(g, new PointF(from.X, from.Y), new PointF(to.X, to.Y), isSelOrHighlight);
+                    bool isForbidden = edge.IsForbidden;
+                    DrawArrow(g, new PointF(from.X, from.Y), new PointF(to.X, to.Y), isSelOrHighlight, isForbidden);
                 }
 
                 // draw nodes
@@ -680,11 +701,11 @@ namespace CausalDiagram_1
         //}
 
 
-        private void DrawArrow(Graphics g, PointF pFrom, PointF pTo, bool highlight = false)
+        private void DrawArrow(Graphics g, PointF pFrom, PointF pTo, bool highlight = false, bool forbidden = false)
         {
             // Толщина и цвет зависят от состояния (highlight/selected)
-            var penWidth = highlight ? 3f : 2f;
-            var penColor = highlight ? Color.OrangeRed : Color.DarkGreen;
+            float penWidth = forbidden ? 2.5f : (highlight ? 3f : 2f);
+            Color penColor = forbidden ? Color.Red : (highlight ? Color.OrangeRed : Color.DarkGreen);
 
             using (var pen = new Pen(penColor, penWidth))
             {
@@ -692,6 +713,7 @@ namespace CausalDiagram_1
                 pen.EndCap = System.Drawing.Drawing2D.LineCap.Flat;
                 pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
                 pen.LineJoin = System.Drawing.Drawing2D.LineJoin.Round;
+                if (forbidden) pen.DashStyle = DashStyle.Dash;
 
                 // вычисляем bounding rect для узлов (как у вас)
                 var fromRect = new RectangleF(pFrom.X - NodeWidth / 2f, pFrom.Y - NodeHeight / 2f, NodeWidth, NodeHeight);
@@ -872,7 +894,25 @@ namespace CausalDiagram_1
                     }
                     else if (_connectFrom != node)
                     {
-                        var edge = new Edge { From = _connectFrom.Id, To = node.Id };
+                        // проверка на запрещённые связи
+                        var fromNode = _connectFrom;
+                        var toNode = node;
+                        ForbiddenRule violated;
+                        if (_enforceForbiddenLinks && IsForbiddenConnection(fromNode, toNode, out violated))
+                        {
+                            var msg = $"Создание связи {fromNode.Title} → {toNode.Title} запрещено правилом: {violated}\nДобавить всё равно?";
+                            var res = MessageBox.Show(msg, "Запрещённая связь", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                            if (res == DialogResult.No)
+                            {
+                                _connectFrom = null;
+                                return;
+                            }
+                        }
+
+                        var edge = new Edge { Id = Guid.NewGuid(), From = _connectFrom.Id, To = node.Id };
+                        if (IsForbiddenConnection(fromNode, toNode, out violated))
+                            edge.IsForbidden = true;
+
                         var cmd = new AddEdgeCommand(_diagram, edge);
                         _cmd.ExecuteCommand(cmd);
                         _connectFrom = null;
@@ -1292,6 +1332,15 @@ namespace CausalDiagram_1
                 set => Node.ColorName = value;
             }
 
+            [DisplayName("Категория")]
+            [Description("Категория узла (используется для правил запрещённых связей)")]
+            public NodeCategory Категория
+            {
+                get => Node.Category;
+                set => Node.Category = value;
+            }
+
+
             // Скрываем технические поля FMEA (оставляем в модели, но не показываем в PropertyGrid)
             [Browsable(false)]
             public int Severity { get => Node.Severity; set => Node.Severity = value; }
@@ -1564,6 +1613,44 @@ namespace CausalDiagram_1
             foreach (var n in _diagram.Nodes) n.IsHighlighted = false;
             foreach (var e in _diagram.Edges) e.IsHighlighted = false;
             InvalidateCanvas();
+        }
+
+        // Возвращает true, если соединение from->to запрещено (и out reason содержит правило)
+        private bool IsForbiddenConnection(Node from, Node to, out ForbiddenRule violatedRule)
+        {
+            violatedRule = null;
+            if (from == null || to == null) return false;
+
+            // если правила хранятся в _diagram (и вы добавили ForbiddenRules туда) — используйте их
+            var rulesCollection = _diagram?.ForbiddenRules ?? _forbiddenRules;
+
+            foreach (var r in rulesCollection)
+            {
+                if (r.FromCategory == from.Category && r.ToCategory == to.Category)
+                {
+                    violatedRule = r;
+                    return true;
+                }
+            }
+
+            // Пример простого правила: запрет "перескакивать уровни" 
+            // if (Math.Abs((int)from.Category - (int)to.Category) > 2) { violatedRule = new ForbiddenRule{FromCategory=from.Category, ToCategory=to.Category, Reason="Слишком большая разница уровней"}; return true; }
+
+            return false;
+        }
+
+        private void EditForbiddenRules()
+        {
+            var form = new ForbiddenRulesForm(_diagram?.ForbiddenRules ?? _forbiddenRules);
+            if (form.ShowDialog() == DialogResult.OK)
+            {
+                // если правила встраиваются в diagram
+                if (_diagram != null)
+                    _diagram.ForbiddenRules = form.Rules;
+                else
+                    _forbiddenRules = form.Rules;
+                MessageBox.Show("Правила сохранены.");
+            }
         }
 
     }
