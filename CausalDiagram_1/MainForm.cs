@@ -29,7 +29,7 @@ namespace CausalDiagram_1
         // Текущий цвет для создания новых узлов
         private NodeColor _currentColor = NodeColor.Green;
 
-        // Кнопка "Выбрать" (мышка) - объявите поле чтобы можно было подсвечивать
+        // Кнопка "Выбрать" (мышка)
         private Button _btnSelect;
 
         // UI
@@ -39,7 +39,7 @@ namespace CausalDiagram_1
         private Button _btnAddNode, _btnConnect, _btnDelete, _btnUndo, _btnRedo, _btnPaint, _btnTraceCause  /*_btnFmea*/;
         private string _currentFile;
 
-        // Interaction state
+        //взаимодействие
         private enum Mode { Select, AddNode, Connect, Pan, Paint }
         private Mode _mode = Mode.Select;
         private Node _dragNode = null;
@@ -53,9 +53,8 @@ namespace CausalDiagram_1
 
         private Node _propGridOldSnapshot = null;
 
-        // выбранное ребро (если есть)
+        // выбранное ребро
         private Guid _selectedEdgeId = Guid.Empty;
-        // порог для hit-test по ребру (в пикселях, в координатах canvas)
         private const float EdgeHitTestThreshold = 8f;
 
         //меню при узле
@@ -67,12 +66,11 @@ namespace CausalDiagram_1
         private bool _snapToGrid = true; // при создании/перемещении привязываем к сетке
 
         // --- Copy/Paste ---
-        private const string CLIPBOARD_FORMAT = "CausalDiagramSubgraph_v1"; // необязательный, используем plain text JSON
-                                                                            // для простоты используем Clipboard.SetText/GetText с JSON
-                                                                            // Multi-select fields
+        private const string CLIPBOARD_FORMAT = "CausalDiagramSubgraph_v1"; 
+                                                                            
         private HashSet<Guid> _selectedNodeIds = new HashSet<Guid>();
         private bool _isSelectingRect = false;
-        private Point _selectionStartScreen;    // в экранных (control) координатах
+        private Point _selectionStartScreen;    // в экранных координатах
         private Rectangle _selectionRectScreen; // в экранных координатах, для рисования
 
         // --- Autosave ---
@@ -111,7 +109,7 @@ namespace CausalDiagram_1
             }
             catch (Exception ex)
             {
-                // не допускаем падения формы из-за ошибки восстановления
+                // не допускается падение формы из-за ошибки восстановления
                 MessageBox.Show("Ошибка при восстановлении автосохранения: " + ex.Message, "Восстановление", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
@@ -130,7 +128,7 @@ namespace CausalDiagram_1
             tsiSave.Click += (s, e) => SaveDiagram();
             tsiExport.Click += (s, e) => ExportPng();
 
-            // создаём управляющие кнопки (включая Select и цветовые кнопки)
+            // создаём управляющие кнопки
             _btnSelect = new Button { Text = "Выбрать" };
             _btnAddNode = new Button { Text = "Добавить узел" };
             _btnConnect = new Button { Text = "Соединить" };
@@ -156,7 +154,7 @@ namespace CausalDiagram_1
             };
             _btnTraceCause.Click += (s, e) => DoTraceCause();
 
-            // Цветовые кнопки (ToolStrip кнопки удобнее, но мы используем обычные Button-hosts)
+            // Цветовые кнопки
             var btnColorGreen = new Button { Text = "Зелёный" };
             var btnColorYellow = new Button { Text = "Жёлтый" };
             var btnColorRed = new Button { Text = "Красный" };
@@ -206,7 +204,7 @@ namespace CausalDiagram_1
             var hostRules = new ToolStripControlHost(btnRules);
             var hostEnforce = new ToolStripControlHost(btnEnforce);
 
-            // добавление в тулбар (порядок можно менять)
+            // добавление в тулбар
             _tool.Items.Add(tsiNew);
             _tool.Items.Add(tsiOpen);
             _tool.Items.Add(tsiSave);
@@ -265,7 +263,7 @@ namespace CausalDiagram_1
             _propGrid = new PropertyGrid { Dock = DockStyle.Right, Width = 300 };
             // чтобы изменения в PropertyGrid сразу перерисовывали холст
             _propGrid.PropertyValueChanged += (s, e) => {
-                // SelectedObject должен быть NodeProxy
+
                 if (_propGrid.SelectedObject is NodeProxy proxy)
                 {
                     var node = proxy.Node;
@@ -295,7 +293,7 @@ namespace CausalDiagram_1
             _canvas.MouseMove += Canvas_MouseMove;
             _canvas.MouseWheel += Canvas_MouseWheel;
             _canvas.Resize += (s, e) => InvalidateCanvas();
-            // включаем double buffering (метод из расширения)
+            // включаем double buffering
             this.DoubleBufferedControl(_canvas, true);
 
             // --- StatusStrip (внизу) ---
@@ -326,7 +324,7 @@ namespace CausalDiagram_1
             };
             _autosaveTimer.Start();
 
-            // --- Autosave initialization (добавьте в конец InitializeUi) ---
+            // --- Autosave initialization  ---
             _autosavePath = Path.Combine(Path.GetTempPath(), "causal_diagram_autosave.json");
             _autosaveTimer = new System.Windows.Forms.Timer();
             _autosaveTimer.Interval = _autosaveIntervalMs;
@@ -341,7 +339,7 @@ namespace CausalDiagram_1
                 }
                 catch
                 {
-                    // можно логировать ошибку, но молча продолжим
+                    // можно логировать ошибку, ПОКА молча продолжим
                 }
             };
             _autosaveTimer.Start();
@@ -366,7 +364,7 @@ namespace CausalDiagram_1
             // Установим режим по умолчанию
             _mode = Mode.Select;
 
-            // Обновим статус (и перерисовку)
+            // Обновим статус
             UpdateStatus();
             UpdateStatusText();
             InvalidateCanvas();
@@ -376,7 +374,7 @@ namespace CausalDiagram_1
 
         private void UpdateColorButtons(Button g, Button y, Button r)
         {
-            // простая визуальная подсветка: выбранная кнопка — светло-зелёная, прочие — стандарт
+            // подсветка: выбранная кнопка — светло-зелёная, прочие — стандарт
             g.BackColor = (_currentColor == NodeColor.Green) ? Color.LightGreen : SystemColors.Control;
             y.BackColor = (_currentColor == NodeColor.Yellow) ? Color.LightYellow : SystemColors.Control;
             r.BackColor = (_currentColor == NodeColor.Red) ? Color.LightCoral : SystemColors.Control;
@@ -440,14 +438,13 @@ namespace CausalDiagram_1
                 var g = e.Graphics;
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
-                // apply transform: scale then translate (pan)
                 var m = g.Transform;
                 m.Reset();
                 m.Scale(_scale, _scale);
                 m.Translate(_panOffset.X, _panOffset.Y);
                 g.Transform = m;
 
-                // draw grid (если включена)
+                // draw grid
                 if (_showGrid)
                 {
                     var clientRect = _canvas.ClientRectangle;
@@ -487,14 +484,14 @@ namespace CausalDiagram_1
                     DrawNode(g, node);
                 }
 
-                // рисуем rubber-band в экранных координатах поверх всего — ВНУТРИ try (г доступна)
+                // рисовка rubber-band в экранных координатах поверх всего
                 if (_isSelectingRect)
                 {
                     // сбросим transform чтобы нарисовать в pixel-координатах контролла
                     var prevTransform = g.Transform;
                     g.ResetTransform();
 
-                    // рисуем пунктирную рамку
+                    // рисовка пунктирную рамку
                     using (var pen = new Pen(Color.FromArgb(180, Color.Blue), 1f))
                     {
                         pen.DashStyle = System.Drawing.Drawing2D.DashStyle.Dash;
@@ -518,7 +515,7 @@ namespace CausalDiagram_1
                     string tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "causal_diagram_error.log");
                     System.IO.File.AppendAllText(tmp, DateTime.Now.ToString("s") + " — Canvas_Paint exception:\r\n" + ex.ToString() + "\r\n\r\n");
                 }
-                catch { /* негромкая неудача логирования */ }
+                catch { /* негромко молчим */ }
 
                 MessageBox.Show("Ошибка при отрисовке холста: " + ex.Message + "\nСм. лог: causal_diagram_error.log в %TEMP%", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
@@ -569,7 +566,7 @@ namespace CausalDiagram_1
                     g.DrawRectangle(borderPen, rect.X, rect.Y, rect.Width, rect.Height);
             }
 
-            // Trace highlight (исходящий от DoTraceCause) — оранжево-красная рамка
+            // оранжево-красная рамка
             if (node.IsHighlighted)
             {
                 using (var hlPen = new Pen(Color.OrangeRed, 3f))
@@ -587,7 +584,7 @@ namespace CausalDiagram_1
                 }
             }
 
-            // Selection (пользователь выбрал узел) — синяя толстая рамка поверх всего
+            //синяя толстая рамка поверх всего при выборе
             bool isSelected = _selectedNodeIds.Contains(node.Id)
                               || (_propGrid?.SelectedObject is NodeProxy np && np.Node.Id == node.Id);
             if (isSelected)
@@ -607,7 +604,7 @@ namespace CausalDiagram_1
                 }
             }
 
-            // Текст: многострочный, центрированный, auto-fit (уменьшение шрифта при необходимости)
+            // Текст
             var text = string.IsNullOrEmpty(node.Title) ? "(без названия)" : node.Title;
             var sf = new StringFormat
             {
@@ -619,7 +616,7 @@ namespace CausalDiagram_1
 
             var layoutRect = RectangleF.Inflate(rect, -6f, -6f); // внутренний отступ
 
-            // Автоуменьшение шрифта, чтобы текст поместился
+            // чтобы текст поместился
             float fontSize = 10f;
             float minFont = 6f;
             var baseFamily = SystemFonts.DefaultFont.FontFamily;
@@ -631,7 +628,6 @@ namespace CausalDiagram_1
             // измерение с временным шрифтом, уменьшение до подходящего размера
             using (var testFont = new Font(baseFamily, fontSize))
             {
-                //var measured = g.MeasureString(text, testFont, (int)layoutRect.Width, sf);
                 float current = fontSize;
                 while ((measured.Width > layoutRect.Width || measured.Height > layoutRect.Height) && current > minFont)
                 {
@@ -675,51 +671,26 @@ namespace CausalDiagram_1
             path.CloseFigure();
             return path;
         }
-        //private System.Drawing.Drawing2D.GraphicsPath RoundedRectPath(RectangleF rect, float radius)
-        //{
-        //    var path = new System.Drawing.Drawing2D.GraphicsPath();
-        //    float diameter = radius * 2f;
-        //    var arcRect = new RectangleF(rect.Location, new SizeF(diameter, diameter));
-
-        //    // top-left
-        //    path.AddArc(arcRect, 180, 90);
-
-        //    // top-right
-        //    arcRect.X = rect.Right - diameter;
-        //    path.AddArc(arcRect, 270, 90);
-
-        //    // bottom-right
-        //    arcRect.Y = rect.Bottom - diameter;
-        //    path.AddArc(arcRect, 0, 90);
-
-        //    // bottom-left
-        //    arcRect.X = rect.Left;
-        //    path.AddArc(arcRect, 90, 90);
-
-        //    path.CloseFigure();
-        //    return path;
-        //}
-
 
         private void DrawArrow(Graphics g, PointF pFrom, PointF pTo, bool highlight = false, bool forbidden = false)
         {
-            // Толщина и цвет зависят от состояния (highlight/selected)
+            // Толщина и цвет зависят от состояния
             float penWidth = forbidden ? 2.5f : (highlight ? 3f : 2f);
             Color penColor = forbidden ? Color.Red : (highlight ? Color.OrangeRed : Color.DarkGreen);
 
             using (var pen = new Pen(penColor, penWidth))
             {
-                // делаем начало линии более аккуратным при большой толщине
+                // начало линии более аккуратным при большой толщине
                 pen.EndCap = System.Drawing.Drawing2D.LineCap.Flat;
                 pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
                 pen.LineJoin = System.Drawing.Drawing2D.LineJoin.Round;
                 if (forbidden) pen.DashStyle = DashStyle.Dash;
 
-                // вычисляем bounding rect для узлов (как у вас)
+
                 var fromRect = new RectangleF(pFrom.X - NodeWidth / 2f, pFrom.Y - NodeHeight / 2f, NodeWidth, NodeHeight);
                 var toRect = new RectangleF(pTo.X - NodeWidth / 2f, pTo.Y - NodeHeight / 2f, NodeWidth, NodeHeight);
 
-                // точки на границах прямоугольников (ваша функция должна учитывать форму)
+                // точки на границах прямоугольников
                 var pt1 = GetRectBoundaryPointTowards(fromRect, pTo);
                 var pt2 = GetRectBoundaryPointTowards(toRect, pFrom);
 
@@ -754,7 +725,6 @@ namespace CausalDiagram_1
 
 
 
-        // Возвращает точку на границе rect в направлении к target
         private PointF GetRectBoundaryPointTowards(RectangleF rect, PointF target)
         {
             var center = new PointF(rect.X + rect.Width / 2f, rect.Y + rect.Height / 2f);
@@ -813,7 +783,7 @@ namespace CausalDiagram_1
             return null;
         }
 
-        // helper: расстояние от точки p до отрезка a-b
+        // расстояние от точки p до отрезка a-b
         private float DistancePointToSegment(PointF p, PointF a, PointF b)
         {
             float vx = b.X - a.X;
@@ -922,17 +892,16 @@ namespace CausalDiagram_1
                 }
             }
 
-            // В режиме Select: выбор и/или перетаскивание узла и ребёр
+            // В режиме "Выбрать": выбор и/или перетаскивание узла и ребёр
             if (_mode == Mode.Select && e.Button == MouseButtons.Left)
             {
-                // используем уже вычисленную выше переменную p
 
-                // сначала проверим, не попал ли пользователь по ребру
+                // попал ли пользователь по ребру
                 var hitEdge = HitTestEdge(p);
                 if (hitEdge != null)
                 {
                     _selectedEdgeId = hitEdge.Id;
-                    // снимем выделение узла (если нужно)
+                    // снимем выделение узла
                     _propGrid.SelectedObject = null;
                     _dragNode = null;
                     _selectedNodeIds.Clear();
@@ -955,18 +924,18 @@ namespace CausalDiagram_1
                         else
                             _selectedNodeIds.Add(clickedNode.Id);
 
-                        // обновим PropertyGrid: если 1 элемент выбран — показываем его, иначе очищаем
+                        // если 1 элемент выбран — показываем его, иначе очищаем
                         UpdatePropertyGridSelection();
                         InvalidateCanvas();
                         return;
                     }
                     else
                     {
-                        // обычный клик — один выбранный узел (очищаем предыдущую выборку)
+                        // обычный клик — один выбранный узел
                         _selectedNodeIds.Clear();
                         _selectedNodeIds.Add(clickedNode.Id);
 
-                        // начать drag перемещение узла как раньше
+                        // начать перемещение узла как раньше
                         _dragNode = clickedNode;
                         _dragStart = new PointF(clickedNode.X, clickedNode.Y);
 
@@ -976,7 +945,7 @@ namespace CausalDiagram_1
                     }
                 }
 
-                // Клик в пустой области — начинаем rubber-band selection
+                // Клик в пустой области
                 _isSelectingRect = true;
                 _selectionStartScreen = e.Location;
                 _selectionRectScreen = new Rectangle(e.Location, Size.Empty);
@@ -1076,7 +1045,6 @@ namespace CausalDiagram_1
 
             if (e.Button == MouseButtons.Right)
             {
-                //var p = ScreenToCanvas(e.Location);
                 var hit = HitTestEdge(p);
                 if (hit != null)
                 {
@@ -1100,12 +1068,12 @@ namespace CausalDiagram_1
                     Math.Max(p1.X, p2.X),
                     Math.Max(p1.Y, p2.Y));
 
-                // функция, выбирающая узлы в canvasRect
+                // функция, выбирающая узлы 
                 var nodesInRect = _diagram.Nodes.Where(n =>
                     n.X >= canvasRect.Left && n.X <= canvasRect.Right &&
                     n.Y >= canvasRect.Top && n.Y <= canvasRect.Bottom).ToList();
 
-                // если без Ctrl/Shift — мы уже очистили выбор в MouseDown; если были модификаторы — добавляем
+                // если без Ctrl/Shift — уже очистили выбор в MouseDown; если были модификаторы — добавляем
                 foreach (var n in nodesInRect)
                     _selectedNodeIds.Add(n.Id);
 
@@ -1206,14 +1174,14 @@ namespace CausalDiagram_1
                     g.Clear(Color.White);
                     g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
-                    // применяем ту же трансформацию, что и на холсте (scale и pan)
+                    // применяем ту же трансформацию, что и на холсте
                     var m = g.Transform;
                     m.Reset();
                     m.Scale(_scale, _scale);
                     m.Translate(_panOffset.X, _panOffset.Y);
                     g.Transform = m;
 
-                    // Рисуем ребра (стрелки) через DrawArrow - учитываем highlight/selected
+                    // Рисуем ребра (стрелки)
                     foreach (var edge in _diagram.Edges)
                     {
                         var from = _diagram.Nodes.FirstOrDefault(n => n.Id == edge.From);
@@ -1226,7 +1194,7 @@ namespace CausalDiagram_1
                     }
 
 
-                    // Рисуем узлы через ваш DrawNode (он уже рисует прямоугольники/закругления и цвет)
+                    // Рисуем узлы 
                     foreach (var node in _diagram.Nodes)
                     {
                         DrawNode(g, node);
@@ -1292,19 +1260,7 @@ namespace CausalDiagram_1
                 InvalidateCanvas();
                 return;
             }
-            //var node = sel.Node;
-            //var cmd = new RemoveNodeCommand(_diagram, node);
-            //_cmd.ExecuteCommand(cmd);
-            //_propGrid.SelectedObject = null;
-            //InvalidateCanvas();
         }
-
-        //private void ShowFmeaForm()
-        //{
-        //    var f = new FmeaForm(_diagram);
-        //    f.ShowDialog();
-        //    InvalidateCanvas();
-        //}
 
         #endregion
 
@@ -1342,7 +1298,7 @@ namespace CausalDiagram_1
             }
 
 
-            // Скрываем технические поля FMEA (оставляем в модели, но не показываем в PropertyGrid)
+            // технические поля FMEA
             [Browsable(false)]
             public int Severity { get => Node.Severity; set => Node.Severity = value; }
             [Browsable(false)]
@@ -1351,7 +1307,6 @@ namespace CausalDiagram_1
             public int Detectability { get => Node.Detectability; set => Node.Detectability = value; }
         }
 
-        // Reflection helper to enable double buffering on Panel
         private void DoubleBufferedControl(Control c, bool setting)
         {
             var prop = typeof(Control).GetProperty("DoubleBuffered", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
@@ -1369,7 +1324,7 @@ namespace CausalDiagram_1
 
             var selIds = new HashSet<Guid>(selNodes.Select(n => n.Id));
             var sub = new Diagram();
-            // копируем узлы (с их исходными Id — чтобы при вставке понять связи)
+            // копируем узлы (с их исходными Id — чтобы при вставке понять СВЯЗИ)
             foreach (var n in selNodes)
             {
                 sub.Nodes.Add(new Node
@@ -1387,7 +1342,7 @@ namespace CausalDiagram_1
                 });
             }
 
-            // копируем ребра только между выбранными узлами
+            // копируем ребра ТОЛЬКО между выбранными узлами
             foreach (var e in _diagram.Edges)
             {
                 if (selIds.Contains(e.From) && selIds.Contains(e.To))
@@ -1428,7 +1383,7 @@ namespace CausalDiagram_1
             // выбираем смещение: использовать текущую позицию мыши или фиксированный сдвиг
             float offsetX = 20f, offsetY = 20f;
 
-            // если есть текущие выделенные узлы — можно вставлять рядом; для простоты используем смещение
+
             foreach (var n in sub.Nodes)
             {
                 var newNode = new Node
@@ -1489,7 +1444,7 @@ namespace CausalDiagram_1
             }
             else
             {
-                // для множественного выбора не показываем PropertyGrid (или можно показать массив объектов)
+                // для множественного выбора 
                 _propGrid.SelectedObject = null;
                 _propGridOldSnapshot = null;
             }
@@ -1503,7 +1458,7 @@ namespace CausalDiagram_1
             var result = new List<List<Guid>>();
             if (targetId == Guid.Empty) return result;
 
-            // Строим обратный adjacency (from <- to)
+            // Строим обратный (from <- to)
             var predecessors = new Dictionary<Guid, List<Guid>>();
             foreach (var e in _diagram.Edges)
             {
@@ -1511,7 +1466,7 @@ namespace CausalDiagram_1
                 predecessors[e.To].Add(e.From);
             }
 
-            // BFS-like approach storing paths (queue of paths)
+            // очередь
             var q = new Queue<List<Guid>>();
             q.Enqueue(new List<Guid> { targetId });
 
@@ -1520,26 +1475,21 @@ namespace CausalDiagram_1
                 var path = q.Dequeue(); // path: [current, ..., target]
                 var current = path[0];
 
-                // if no predecessors -> we've reached a source (path complete). Reverse so source -> ... -> target
                 if (!predecessors.ContainsKey(current) || predecessors[current].Count == 0 || path.Count - 1 >= maxDepth)
                 {
-                    // add reversed copy
                     var rev = path.ToArray().Reverse().ToList();
                     result.Add(rev);
                     continue;
                 }
 
-                // extend
                 foreach (var p in predecessors[current])
                 {
-                    // avoid cycles in path
                     if (path.Contains(p)) continue;
                     var newPath = new List<Guid> { p };
                     newPath.AddRange(path);
                     q.Enqueue(newPath);
-                    if (result.Count + q.Count > maxPaths * 5) // safe-guard
+                    if (result.Count + q.Count > maxPaths * 5) 
                     {
-                        // stop expanding too much (protect from explosion)
                         break;
                     }
                 }
@@ -1616,13 +1566,12 @@ namespace CausalDiagram_1
             InvalidateCanvas();
         }
 
-        // Возвращает true, если соединение from->to запрещено (и out reason содержит правило)
+        // Возвращает true, если соединение from->to запрещено
         private bool IsForbiddenConnection(Node from, Node to, out ForbiddenRule violatedRule)
         {
             violatedRule = null;
             if (from == null || to == null) return false;
 
-            // если правила хранятся в _diagram (и вы добавили ForbiddenRules туда) — используйте их
             var rulesCollection = _diagram?.ForbiddenRules ?? _forbiddenRules;
 
             foreach (var r in rulesCollection)
@@ -1633,9 +1582,6 @@ namespace CausalDiagram_1
                     return true;
                 }
             }
-
-            // Пример простого правила: запрет "перескакивать уровни" 
-            // if (Math.Abs((int)from.Category - (int)to.Category) > 2) { violatedRule = new ForbiddenRule{FromCategory=from.Category, ToCategory=to.Category, Reason="Слишком большая разница уровней"}; return true; }
 
             return false;
         }

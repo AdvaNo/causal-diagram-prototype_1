@@ -100,7 +100,7 @@ namespace CausalDiagram_1
             for (int i = 0; i < _diagram.Nodes.Count; i++)
             {
                 var node = _diagram.Nodes[i];
-                // обновим значение в гриде (если строки соответствуют)
+
                 if (i >= 0 && i < _grid.Rows.Count)
                 {
                     var row = _grid.Rows[i];

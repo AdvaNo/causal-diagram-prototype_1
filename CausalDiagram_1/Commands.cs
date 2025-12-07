@@ -49,7 +49,7 @@ namespace CausalDiagram_1
         }
     }
 
-    // AddNode
+
     public class AddNodeCommand : ICommand
     {
         private readonly Diagram _diagram;
@@ -65,7 +65,6 @@ namespace CausalDiagram_1
         public void Undo() => _diagram.Nodes.Remove(_node);
     }
 
-    // Remove node (and store linked edges)
     public class RemoveNodeCommand : ICommand
     {
         private readonly Diagram _diagram;
@@ -162,7 +161,7 @@ namespace CausalDiagram_1
 
         private void Apply(Node s)
         {
-            // применяем по полям (не меняем Id,X,Y)
+            
             _node.Title = s.Title;
             _node.Description = s.Description;
             _node.Weight = s.Weight;
@@ -173,7 +172,7 @@ namespace CausalDiagram_1
         }
     }
 
-    // ChangeNodeColorCommand — смена цвета узла с поддержкой undo/redo
+    // смена цвета узла с поддержкой вернуть/отменить
     public class ChangeNodeColorCommand : ICommand
     {
         private readonly Node _node;
@@ -198,7 +197,7 @@ namespace CausalDiagram_1
         }
     }
 
-    // RemoveEdgeCommand — удаление ребра (undo/redo)
+    //удаление ребра вернуть/отменить
     public class RemoveEdgeCommand : ICommand
     {
         private readonly Diagram _diagram;
@@ -207,7 +206,7 @@ namespace CausalDiagram_1
         public RemoveEdgeCommand(Diagram diagram, Edge edge)
         {
             _diagram = diagram;
-            // делаем копию ребра (на всякий случай)
+            //копия ребра
             _edge = new Edge { Id = edge.Id, From = edge.From, To = edge.To };
         }
 

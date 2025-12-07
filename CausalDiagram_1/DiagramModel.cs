@@ -20,12 +20,12 @@ namespace CausalDiagram_1
         public float Y { get; set; }
         public float Weight { get; set; } = 0f;
 
-        // FMEA поля
+        // FMEA поля: ПОКА НЕ НУЖНЫ
         public int Severity { get; set; } = 1;
         public int Occurrence { get; set; } = 1;
         public int Detectability { get; set; } = 1;
 
-        // Цвет и форма (сериализуется как enum)
+        // Цвет и форма
         public NodeColor ColorName { get; set; } = NodeColor.Green;
 
         [JsonIgnore]
